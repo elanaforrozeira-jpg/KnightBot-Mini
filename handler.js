@@ -542,7 +542,7 @@ if (!senderIsGroupOwner && !senderIsBotOwner && !senderIsAdmin) {
                   }
                 });
               } catch (e) {}
-            }, 5000);
+            }, 50000);
           }
 
           // 4. OPTIONAL: Try to also delete "this message was deleted" banner if possible (WhatsApp API restriction)

@@ -58,7 +58,6 @@ const {
   useMultiFileAuthState,
   DisconnectReason,
   Browsers,
-  fetchLatestBaileysVersion
 } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const config = require('./config');
@@ -220,7 +219,8 @@ async function startBot() {
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
-  const version = [2, 3000, 1023456789]; // fixed version, network call nahi hogi
+  const version = [2, 3000, 1015901307];
+ // fixed version, network call nahi hogi
 
   // Use suppressed logger for socket
   const suppressedLogger = createSuppressedLogger('silent');

@@ -14,8 +14,8 @@ const axios = require('axios');
 
 // Group metadata cache to prevent rate limiting
 const groupMetadataCache = new Map();
-const CACHE_TTL = 60000; // 1 minute cache
-const CACHE_MAX_SIZE = 200; // Maximum number of cached groups
+const CACHE_TTL = 30000; // 1 minute cache
+const CACHE_MAX_SIZE = 50; // Maximum number of cached groups
 
 // Evict the entry with the oldest timestamp when at capacity
 const evictOldestCacheEntry = () => {
@@ -168,7 +168,11 @@ const isMod = (sender) => {
 
 // LID mapping cache
 const lidMappingCache = new Map();
-
+setInterval(() => {
+  if (lidMappingCache.size > 100) {
+    lidMappingCache.clear();
+  }
+}, 60 * 1000);
 // Helper to normalize JID to just the number part
 const normalizeJid = (jid) => {
   if (!jid) return null;

@@ -226,24 +226,21 @@ async function startBot() {
   const suppressedLogger = createSuppressedLogger('silent');
 
   const sock = makeWASocket({
-    version, // explicit WA Web version negotiated with the server
-    logger: suppressedLogger,
-    printQRInTerminal: false,
-    // Use a common desktop browser signature
-    browser: ['Chrome', 'Windows', '10.0'],
-    auth: state,
-    // Memory optimization: prevent loading old messages into RAM
-    syncFullHistory: false,
-    downloadHistory: false,
-    markOnlineOnConnect: false,
-    getMessage: async () => undefined // Don't load messages from store
-  });
+  version, // explicit WA Web version negotiated with the server
+  logger: suppressedLogger,
+  printQRInTerminal: false,
+  browser: ['Chrome', 'Windows', '10.0'],
+  auth: state,
+  syncFullHistory: false,
+  downloadHistory: false,
+  markOnlineOnConnect: false,
+  getMessage: async () => undefined, // Don't load messages from store
   generateHighQualityLinkPreview: false,
   patchMessageBeforeSending: (msg) => msg,
   transactionOpts: { maxCommitRetries: 1, delayBetweenTriesMs: 10 },
   connectTimeoutMs: 20000,
   keepAliveIntervalMs: 30000,
-});
+ });
   // Bind store to socket
   store.bind(sock.ev);
 

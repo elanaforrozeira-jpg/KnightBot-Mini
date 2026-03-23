@@ -86,7 +86,7 @@ function cleanupPuppeteerCache() {
 // Optimized in-memory store with hard limits (Map-based for better memory management)
 const store = {
   messages: new Map(), // Use Map instead of plain object
-  maxPerChat: 20, // Limit to 20 messages per chat
+  maxPerChat: 10, // Limit to 10 messages per chat
 
   bind: (ev) => {
     ev.on('messages.upsert', ({ messages }) => {
@@ -383,7 +383,7 @@ async function startBot() {
         const chatMsgs = store.messages.get(from);
         chatMsgs.set(msg.key.id, msg);
 
-        // Cleanup: Keep only last 20 per chat (reduced from 200)
+        // Cleanup: Keep only last 10 per chat (reduced from 20)
         if (chatMsgs.size > store.maxPerChat) {
           // Remove oldest messages
           const sortedIds = Array.from(chatMsgs.entries())

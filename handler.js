@@ -15,6 +15,38 @@ const axios = require('axios');
 // Group metadata cache to prevent rate limiting
 const groupMetadataCache = new Map();
 const CACHE_TTL = 60000; // 1 minute cache
+const CACHE_MAX_SIZE = 200; // Maximum number of cached groups
+
+// Evict the entry with the oldest timestamp when at capacity
+const evictOldestCacheEntry = () => {
+  let oldestKey = null;
+  let oldestTime = Infinity;
+  for (const [k, v] of groupMetadataCache.entries()) {
+    if (v.timestamp < oldestTime) {
+      oldestTime = v.timestamp;
+      oldestKey = k;
+    }
+  }
+  if (oldestKey) groupMetadataCache.delete(oldestKey);
+};
+
+// Helper to write to cache while enforcing TTL and size limits
+const setCacheEntry = (groupId, data) => {
+  if (groupMetadataCache.size >= CACHE_MAX_SIZE) {
+    evictOldestCacheEntry();
+  }
+  groupMetadataCache.set(groupId, { data, timestamp: Date.now() });
+};
+
+// Periodically evict expired entries so the Map doesn't grow unboundedly
+const _groupMetadataCacheCleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of groupMetadataCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      groupMetadataCache.delete(key);
+    }
+  }
+}, 90 * 1000); // Every 90 seconds (TTL is 60s; this keeps expired entries for at most ~150s)
 
 // Load all commands
 const commands = loadCommands();
@@ -52,11 +84,8 @@ const getCachedGroupMetadata = async (sock, groupId) => {
     // Fetch from API
     const metadata = await sock.groupMetadata(groupId);
     
-    // Cache it
-    groupMetadataCache.set(groupId, {
-      data: metadata,
-      timestamp: Date.now()
-    });
+    // Cache it (enforce hard cap to prevent unbounded growth)
+    setCacheEntry(groupId, metadata);
     
     return metadata;
   } catch (error) {
@@ -69,10 +98,7 @@ const getCachedGroupMetadata = async (sock, groupId) => {
       error.data === 403
     )) {
       // Cache null for forbidden groups to prevent repeated attempts
-      groupMetadataCache.set(groupId, {
-        data: null,
-        timestamp: Date.now()
-      });
+      setCacheEntry(groupId, null);
       return null; // Silently return null for forbidden groups
     }
     
@@ -103,10 +129,7 @@ const getLiveGroupMetadata = async (sock, groupId) => {
     const metadata = await sock.groupMetadata(groupId);
     
     // Update cache for other features (antilink, welcome, etc.)
-    groupMetadataCache.set(groupId, {
-      data: metadata,
-      timestamp: Date.now()
-    });
+    setCacheEntry(groupId, metadata);
     
     return metadata;
   } catch (error) {
@@ -987,15 +1010,6 @@ const handleGroupUpdate = async (sock, update) => {
             }
           }
           
-          // Get user's profile picture URL
-          let profilePicUrl = '';
-          try {
-            profilePicUrl = await sock.profilePictureUrl(participantJid, 'image');
-          } catch (ppError) {
-            // If profile picture not available, use default avatar
-            profilePicUrl = 'https://img.pyrocdn.com/dbKUgahg.png';
-          }
-          
           // Get group name and description
           const groupName = groupMetadata.subject || 'the group';
           const groupDesc = groupMetadata.desc || 'No description';
@@ -1008,25 +1022,15 @@ const handleGroupUpdate = async (sock, update) => {
             hour12: true 
           });
           
-          // Create formatted welcome message
+          // Send text-only welcome message (no image download to save memory)
           const welcomeMsg = `╭╼━≪•𝙽𝙴𝚆 𝙼𝙴𝙼𝙱𝙴𝚁•≫━╾╮\n┃𝚆𝙴𝙻𝙲𝙾𝙼𝙴: @${displayName} 👋\n┃Member count: #${groupMetadata.participants.length}\n┃𝚃𝙸𝙼𝙴: ${timeString}⏰\n╰━━━━━━━━━━━━━━━╯\n\n*@${displayName}* Welcome to *${groupName}*! 🎉\n*Group 𝙳𝙴𝚂𝙲𝚁𝙸𝙿𝚃𝙸𝙾𝙽*\n${groupDesc}\n\n> *ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${config.botName}*`;
           
-          // Construct API URL for welcome image
-          const apiUrl = `https://api.some-random-api.com/welcome/img/7/gaming4?type=join&textcolor=white&username=${encodeURIComponent(displayName)}&guildName=${encodeURIComponent(groupName)}&memberCount=${groupMetadata.participants.length}&avatar=${encodeURIComponent(profilePicUrl)}`;
-          
-          // Download the welcome image
-          const imageResponse = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-          const imageBuffer = Buffer.from(imageResponse.data);
-          
-          // Send the welcome image with formatted caption
           await sock.sendMessage(id, { 
-            image: imageBuffer,
-            caption: welcomeMsg,
+            text: welcomeMsg,
             mentions: [participantJid] 
           });
         } catch (welcomeError) {
-          // Fallback to text message if image generation fails
-          console.error('Welcome image error:', welcomeError);
+          // Fallback to simple text message
           let message = groupSettings.welcomeMessage || 'Welcome @user to @group! 👋\nEnjoy your stay!';
           message = message.replace('@user', `@${participantNumber}`);
           message = message.replace('@group', groupMetadata.subject || 'the group');
@@ -1113,46 +1117,15 @@ const handleGroupUpdate = async (sock, update) => {
             }
           }
           
-          // Get user's profile picture URL
-          let profilePicUrl = '';
-          try {
-            profilePicUrl = await sock.profilePictureUrl(participantJid, 'image');
-          } catch (ppError) {
-            // If profile picture not available, use default avatar
-            profilePicUrl = 'https://img.pyrocdn.com/dbKUgahg.png';
-          }
-          
-          // Get group name and description
-          const groupName = groupMetadata.subject || 'the group';
-          const groupDesc = groupMetadata.desc || 'No description';
-          
-          // Get current time string
-          const now = new Date();
-          const timeString = now.toLocaleTimeString('en-US', { 
-            hour: '2-digit', 
-            minute: '2-digit',
-            hour12: true 
-          });
-          
-          // Create simple goodbye message
+          // Send text-only goodbye message (no image download to save memory)
           const goodbyeMsg = `Goodbye @${displayName} 👋 We will never miss you!`;
           
-          // Construct API URL for goodbye image (using leave type)
-          const apiUrl = `https://api.some-random-api.com/welcome/img/7/gaming4?type=leave&textcolor=white&username=${encodeURIComponent(displayName)}&guildName=${encodeURIComponent(groupName)}&memberCount=${groupMetadata.participants.length}&avatar=${encodeURIComponent(profilePicUrl)}`;
-          
-          // Download the goodbye image
-          const imageResponse = await axios.get(apiUrl, { responseType: 'arraybuffer' });
-          const imageBuffer = Buffer.from(imageResponse.data);
-          
-          // Send the goodbye image with caption
           await sock.sendMessage(id, { 
-            image: imageBuffer,
-            caption: goodbyeMsg,
+            text: goodbyeMsg,
             mentions: [participantJid] 
           });
         } catch (goodbyeError) {
           // Fallback to simple goodbye message
-          console.error('Goodbye error:', goodbyeError);
           const goodbyeMsg = `Goodbye @${participantNumber} 👋 We will never miss you! 💀`;
           
           await sock.sendMessage(id, { 

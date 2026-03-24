@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup
 # ─────────────────────────────────────────
 # CONFIG — SIRF YE SECTION BHARO
 # ─────────────────────────────────────────
-TOKEN = "APNA_BEARER_TOKEN_YAHAN_PASTE_KARO"  # <- browser se copy karo
+TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY3MTc3MzZmZTk4ZmYwOTkxZTI2M2VjNiIsImlhdCI6MTc3NDM0NjMzMCwiZXhwIjoxNzc2OTM4MzMwfQ.cJ9v1CAwvcIYi5GdRF5x3a6RSuoOJmXp9uI_NTqYWG0"  # <- browser se copy karo
 
 EXAM_ID   = "6995da5e576cd1ce1a19b560"
 MODULE_ID = "6996c063c905dafe76ae1720"

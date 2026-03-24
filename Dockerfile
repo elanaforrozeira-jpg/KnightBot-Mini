@@ -4,6 +4,7 @@ FROM node:20-bullseye-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     python3 \
+    python3-pip \
     pkg-config \
     libcairo2-dev \
     libpango1.0-dev \
@@ -22,8 +23,11 @@ WORKDIR /app
 
 COPY package*.json ./
 
-# Full install (canvas needs native compile, so NOT --omit=dev for build step)
-RUN npm install
+# Install all deps (canvas is optional, won't fail build if it errors)
+RUN npm install --legacy-peer-deps --ignore-optional || npm install --legacy-peer-deps
+
+# Try to build canvas separately (ok if fails, fallback exists in code)
+RUN npm rebuild canvas --update-binary || echo "canvas rebuild failed, using text fallback"
 
 COPY . .
 

@@ -197,7 +197,7 @@ async function startBot() {
       const [header, b64data] = config.sessionID.split('!');
 
       if (header !== 'KnightBot' || !b64data) {
-        throw new Error("❌ Invalid session format. Expected 'KnightBot!.....'");
+        throw new Error("❌ Invalid session format. Expected 'KnightBot!.....'")
       }
 
       const cleanB64 = b64data.replace('...', '');
@@ -431,9 +431,29 @@ async function startBot() {
     // Silently handle receipt updates
   });
 
-  // Message updates (silently handled, no logging)
-  sock.ev.on('messages.update', () => {
-    // Silently handle message updates
+  // 📊 Poll vote handler — captures WhatsApp native poll answers for quiz
+  sock.ev.on('messages.update', async (updates) => {
+    for (const update of updates) {
+      try {
+        // Baileys decrypts poll votes and exposes them as pollUpdateDecryptedV1
+        const pollVote = update?.update?.pollUpdateDecryptedV1;
+        if (!pollVote) continue;
+
+        // Build the pollUpdate object expected by quiz.handlePollVote
+        const pollUpdate = {
+          pollCreationMessageKey: update.key,
+          voter: update.key.participant || update.key.remoteJid,
+          selectedOptions: (pollVote.votes || []).map(v => v.optionName)
+        };
+
+        const quizModule = require('./commands/fun/quiz');
+        if (typeof quizModule.handlePollVote === 'function') {
+          await quizModule.handlePollVote(sock, pollUpdate);
+        }
+      } catch (e) {
+        // Silently ignore poll update errors
+      }
+    }
   });
 
   // Group participant updates (join/leave)

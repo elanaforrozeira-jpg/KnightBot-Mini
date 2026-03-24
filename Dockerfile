@@ -1,8 +1,9 @@
 FROM node:20-bullseye-slim
 
-# Install git + native build deps + yt-dlp
+# Install git + native build deps + fonts
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
+    curl \
     build-essential \
     python3 \
     python3-pip \
@@ -17,9 +18,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     fonts-dejavu-core \
     fonts-noto \
-    && pip3 install --no-cache-dir yt-dlp \
     && fc-cache -fv \
     && rm -rf /var/lib/apt/lists/*
+
+# Install yt-dlp as standalone binary (no Python version dependency)
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp
 
 WORKDIR /app
 

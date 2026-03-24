@@ -28,10 +28,13 @@ async function renderQuestionImage(qData, index, total) {
   const accentColor = subjectColors[qData.subject] || '#6200ea';
   const subjectEmoji = { P: '⚛', C: '🧪', M: '📐' };
 
+  // Use system-safe font stack
+  const FONT = 'Arial, sans-serif';
+
   // Measure text to calculate dynamic height
   const tempCanvas = createCanvas(W, 100);
   const tempCtx = tempCanvas.getContext('2d');
-  tempCtx.font = '26px Sans';
+  tempCtx.font = `26px ${FONT}`;
 
   function wrapText(ctx, text, maxWidth) {
     const words = text.split(' ');
@@ -53,12 +56,12 @@ async function renderQuestionImage(qData, index, total) {
   const qLines = wrapText(tempCtx, qData.q, W - PADDING * 2 - 20);
 
   // Calculate total height needed
-  const topBarH = 70;
-  const titleH = 60;
-  const qLabelH = 40;
-  const qTextH = qLines.length * 36 + 20;
-  const optionsH = qData.options.length * 60 + 20;
-  const footerH = 60;
+  const topBarH   = 70;
+  const titleH    = 60;
+  const qLabelH   = 40;
+  const qTextH    = qLines.length * 36 + 20;
+  const optionsH  = qData.options.length * 60 + 20;
+  const footerH   = 60;
   const H = topBarH + titleH + qLabelH + qTextH + optionsH + footerH + 40;
 
   const canvas = createCanvas(W, H);
@@ -74,17 +77,18 @@ async function renderQuestionImage(qData, index, total) {
 
   // Top bar text
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 22px Sans';
-  ctx.fillText(`❄ DAILY CHALLENGE ❄`, PADDING, 42);
-  ctx.font = '20px Sans';
+  ctx.font = `bold 22px ${FONT}`;
+  ctx.fillText(`* DAILY CHALLENGE *`, PADDING, 42);
+  ctx.font = `20px ${FONT}`;
   ctx.fillText(`Q ${index + 1} / ${total}`, W - 140, 42);
 
   let y = topBarH + 30;
 
   // Chapter label
   ctx.fillStyle = accentColor;
-  ctx.font = 'bold 20px Sans';
-  ctx.fillText(`${subjectEmoji[qData.subject] || '📚'} Chapter: ${qData.category}`, PADDING, y);
+  ctx.font = `bold 20px ${FONT}`;
+  const subEmoji = subjectEmoji[qData.subject] || '📚';
+  ctx.fillText(`${subEmoji} Chapter: ${qData.category}`, PADDING, y);
   y += 44;
 
   // Divider
@@ -98,13 +102,13 @@ async function renderQuestionImage(qData, index, total) {
 
   // Question label
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 22px Sans';
-  ctx.fillText('🌱 Question-', PADDING, y);
+  ctx.font = `bold 22px ${FONT}`;
+  ctx.fillText('>> Question', PADDING, y);
   y += 38;
 
   // Question text (wrapped)
   ctx.fillStyle = '#e0e0e0';
-  ctx.font = '26px Sans';
+  ctx.font = `26px ${FONT}`;
   for (const line of qLines) {
     ctx.fillText(line, PADDING + 10, y);
     y += 36;
@@ -112,8 +116,8 @@ async function renderQuestionImage(qData, index, total) {
   y += 20;
 
   // Options
-  const optBg = ['#16213e', '#0f3460', '#16213e', '#0f3460'];
-  const optLabel = ['1', '2', '3', '4'];
+  const optBg    = ['#16213e', '#0f3460', '#16213e', '#0f3460'];
+  const optLabel = ['A', 'B', 'C', 'D'];
   for (let i = 0; i < qData.options.length; i++) {
     // Option box
     ctx.fillStyle = optBg[i % 2];
@@ -125,18 +129,18 @@ async function renderQuestionImage(qData, index, total) {
     }
     ctx.fill();
 
-    // Number badge
+    // Letter badge
     ctx.fillStyle = accentColor;
     ctx.beginPath();
     ctx.arc(PADDING + 28, y + 25, 18, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px Sans';
+    ctx.font = `bold 18px ${FONT}`;
     ctx.fillText(optLabel[i], PADDING + 22, y + 31);
 
     // Option text
     ctx.fillStyle = '#f0f0f0';
-    ctx.font = '22px Sans';
+    ctx.font = `22px ${FONT}`;
     ctx.fillText(qData.options[i], PADDING + 58, y + 32);
 
     y += 60;
@@ -144,9 +148,9 @@ async function renderQuestionImage(qData, index, total) {
   y += 10;
 
   // Footer
-  ctx.fillStyle = '#888';
-  ctx.font = '18px Sans';
-  ctx.fillText('⏱ 30 seconds to answer  |  Tap poll below to answer', PADDING, y + 30);
+  ctx.fillStyle = '#aaaaaa';
+  ctx.font = `18px ${FONT}`;
+  ctx.fillText('⏱ 30 seconds  |  Tap poll below OR type A / B / C / D', PADDING, y + 30);
 
   return canvas.toBuffer('image/png');
 }
@@ -163,13 +167,14 @@ async function sendImageQuestion(sock, jid) {
     const scores = quizScores.get(jid);
     let finalText = `🎉 *JEE QUIZ COMPLETED!* 🎉\n\n`;
     finalText += formatLeaderboard(scores, session.participants);
-    finalText += `\n\n🔁 फिर से: *.jee* या *.quiz*`;
+    finalText += `\n\n🔁 Phir se: *.jee* ya *.quiz*`;
     await sock.sendMessage(jid, { text: finalText });
     return;
   }
 
   const qData = session.questions[session.current];
   session.answered.clear();
+  session.pollVoters = new Set(); // ← fresh set for THIS question's poll
   session.currentPollId = null;
 
   // Render image
@@ -178,7 +183,6 @@ async function sendImageQuestion(sock, jid) {
     imgBuffer = await renderQuestionImage(qData, session.current, session.questions.length);
   } catch (e) {
     console.error('[JEE Image Render Error]', e.message);
-    // Fallback to text mode if canvas fails
     await sendNextQuestion(sock, jid, 'text');
     return;
   }
@@ -188,7 +192,7 @@ async function sendImageQuestion(sock, jid) {
     image: imgBuffer,
     caption:
       `🌿 *JEE Daily Challenge* 🌿\n` +
-      `〔 Q${session.current + 1}/${session.questions.length} — ${qData.category} 〕\n\n` +
+      `[ Q${session.current + 1}/${session.questions.length} — ${qData.category} ]\n\n` +
       `⏱️ _30 seconds! Poll tap karke answer do_`
   });
 
@@ -207,10 +211,9 @@ async function sendImageQuestion(sock, jid) {
       pollToQuiz.set(pollMsg.key.id, { jid, questionIndex: session.current });
     }
   } catch (e) {
-    // Fallback text options
     let fallback = `*Options:*\n`;
-    qData.options.forEach((opt, i) => { fallback += `  ${LETTERS[i]}️⃣  ${opt}\n`; });
-    fallback += `\n📝 Reply *A / B / C / D* or *1 / 2 / 3 / 4*`;
+    qData.options.forEach((opt, i) => { fallback += `  ${LETTERS[i]})  ${opt}\n`; });
+    fallback += `\n📝 Type A / B / C / D`;
     await sock.sendMessage(jid, { text: fallback });
   }
 
@@ -230,6 +233,7 @@ async function sendImageQuestion(sock, jid) {
 
 // ─────────────────────────────────────────
 //  IMAGE MODE POLL VOTE HANDLER
+//  Blocks multiple votes from same user
 // ─────────────────────────────────────────
 module.exports.handlePollVote = async function(sock, pollUpdate) {
   try {
@@ -243,7 +247,16 @@ module.exports.handlePollVote = async function(sock, pollUpdate) {
 
     const sender = pollUpdate.voter;
     const selectedOptions = pollUpdate.selectedOptions || [];
+
+    // Block if user already voted on this poll
+    if (!session.pollVoters) session.pollVoters = new Set();
+    if (session.pollVoters.has(sender)) {
+      // Silently ignore re-vote
+      return true;
+    }
+
     if (!selectedOptions.length) return false;
+    session.pollVoters.add(sender);
 
     const chosenText = selectedOptions[0];
     const qData = session.questions[session.current];
@@ -258,7 +271,8 @@ module.exports.handlePollVote = async function(sock, pollUpdate) {
 };
 
 // ─────────────────────────────────────────
-//  TEXT ANSWER HANDLER (fallback A/B/C/D)
+//  TEXT ANSWER HANDLER (A/B/C/D)
+//  Reacts ✅ or ❌ on student's message
 // ─────────────────────────────────────────
 function extractText(msg) {
   const m = msg.message;
@@ -289,6 +303,16 @@ module.exports.handleAnswer = async function(sock, msg) {
     session.participants[sender] = msg.pushName || sender.split('@')[0];
   }
 
+  const qData = session.questions[session.current];
+  const isCorrect = answerIndex === qData.ans;
+
+  // ✅/❌ React on the student's own message
+  try {
+    await sock.sendMessage(jid, {
+      react: { text: isCorrect ? '✅' : '❌', key: msg.key }
+    });
+  } catch (e) { /* silent */ }
+
   await processAnswer(sock, jid, sender, session, answerIndex, session.participants[sender]);
   return true;
 };
@@ -309,7 +333,6 @@ module.exports = {
     const sender = msg.key.participant || msg.key.remoteJid;
     const subCmd = args[0]?.toLowerCase() || 'start';
 
-    // Leaderboard
     if (['leaderboard', 'lb'].includes(subCmd)) {
       const scores = quizScores.get(jid);
       const session = activeQuizzes.get(jid);
@@ -317,7 +340,6 @@ module.exports = {
       return;
     }
 
-    // Score
     if (subCmd === 'score') {
       const scores = quizScores.get(jid);
       const myScore = scores?.[sender] || 0;
@@ -326,7 +348,6 @@ module.exports = {
       return;
     }
 
-    // Stop
     if (['stop', 'end'].includes(subCmd)) {
       const session = activeQuizzes.get(jid);
       if (!session) { await sock.sendMessage(jid, { text: '❌ No quiz running!' }, { quoted: msg }); return; }
@@ -343,7 +364,6 @@ module.exports = {
       return;
     }
 
-    // Subject filter
     let subjects = ['P', 'C', 'M'];
     if (subCmd === 'physics')   subjects = ['P'];
     if (subCmd === 'chemistry') subjects = ['C'];
@@ -352,7 +372,8 @@ module.exports = {
     const questions = getRandomQuestions(10, subjects);
     const session = {
       questions, current: 0, scores: {}, participants: {},
-      answered: new Set(), timeout: null, currentPollId: null, mode: 'image'
+      answered: new Set(), pollVoters: new Set(),
+      timeout: null, currentPollId: null, mode: 'image'
     };
     session.participants[sender] = msg.pushName || sender.split('@')[0];
     activeQuizzes.set(jid, session);

@@ -25,7 +25,7 @@ const jeeQuestions = [
   { q: 'Two resistors of 4Ω and 6Ω are connected in parallel. The equivalent resistance is:', options: ['10 Ω', '2.4 Ω', '5 Ω', '1.2 Ω'], ans: 1, category: 'Physics', subject: 'P' },
   { q: 'The time period of a simple pendulum is doubled when its length is:', options: ['Doubled', 'Halved', 'Quadrupled', 'Made 8 times'], ans: 2, category: 'Physics', subject: 'P' },
   { q: 'The escape velocity from the Earth surface is approximately:', options: ['7.9 km/s', '11.2 km/s', '3.0 km/s', '9.8 km/s'], ans: 1, category: 'Physics', subject: 'P' },
-  { q: 'In Young\'s double slit experiment, fringe width is β. If slit separation is doubled, new fringe width is:', options: ['β/2', '2β', 'β', '4β'], ans: 0, category: 'Physics', subject: 'P' },
+  { q: "In Young's double slit experiment, fringe width is β. If slit separation is doubled, new fringe width is:", options: ['β/2', '2β', 'β', '4β'], ans: 0, category: 'Physics', subject: 'P' },
   { q: 'The binding energy per nucleon is maximum for:', options: ['Uranium-238', 'Helium-4', 'Iron-56', 'Carbon-12'], ans: 2, category: 'Physics', subject: 'P' },
 
   // ── CHEMISTRY ──
@@ -105,9 +105,7 @@ function extractText(msg) {
 }
 
 function parseAnswer(rawText) {
-  // Remove @mentions
   let clean = rawText.replace(/@\d+/g, '').trim();
-  // Keep only alphanumeric
   clean = clean.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   const ch = clean.charAt(0);
   if (['A', 'B', 'C', 'D'].includes(ch)) return LETTERS.indexOf(ch);
@@ -116,14 +114,17 @@ function parseAnswer(rawText) {
 }
 
 // ─────────────────────────────────────────
-//  SCORE + RESPONSE HELPER
+//  CORE: PROCESS ANSWER + REACT ON MSG
 // ─────────────────────────────────────────
-async function processAnswer(sock, jid, sender, session, answerIndex, nameOverride) {
+async function processAnswer(sock, jid, sender, session, answerIndex, nameOverride, msgKey = null) {
   if (session.answered.has(sender)) {
-    await sock.sendMessage(jid, {
-      text: `⚠️ @${sender.split('@')[0]}, you already answered!`,
-      mentions: [sender]
-    });
+    // Only warn if they typed (msgKey present), not for poll re-votes (silent)
+    if (msgKey) {
+      await sock.sendMessage(jid, {
+        text: `⚠️ @${sender.split('@')[0]}, you already answered!`,
+        mentions: [sender]
+      });
+    }
     return 'already';
   }
 
@@ -135,6 +136,15 @@ async function processAnswer(sock, jid, sender, session, answerIndex, nameOverri
   const isCorrect = answerIndex === qData.ans;
   const correctOption = qData.options[qData.ans];
 
+  // React on student's message if msgKey is provided
+  if (msgKey) {
+    try {
+      await sock.sendMessage(jid, {
+        react: { text: isCorrect ? '✅' : '❌', key: msgKey }
+      });
+    } catch (e) { /* silent */ }
+  }
+
   const allScores = quizScores.get(jid) || {};
   quizScores.set(jid, allScores);
   if (!allScores[sender]) allScores[sender] = 0;
@@ -144,19 +154,22 @@ async function processAnswer(sock, jid, sender, session, answerIndex, nameOverri
     allScores[sender] += 10;
     session.scores[sender] += 10;
     await sock.sendMessage(jid, {
-      text: `✅ *@${name}* सही जवाब! *+10 pts* 🎯\n🏆 Total: *${allScores[sender]} pts*`,
+      text: `✅ *@${name}* sahi jawab! *+10 pts* 🎯\n🏆 Total: *${allScores[sender]} pts*`,
       mentions: [sender]
     });
     clearTimeout(session.timeout);
     if (session.currentPollId) pollToQuiz.delete(session.currentPollId);
     session.current++;
-    setTimeout(() => sendNextQuestion(sock, jid, session.mode), 2500);
+    const nextFn = session.mode === 'image'
+      ? () => require('./jee').sendImageQuestion?.(sock, jid) || sendNextQuestion(sock, jid, session.mode)
+      : () => sendNextQuestion(sock, jid, session.mode);
+    setTimeout(nextFn, 2500);
     return 'correct';
   } else {
     allScores[sender] -= 2;
     session.scores[sender] -= 2;
     await sock.sendMessage(jid, {
-      text: `❌ *@${name}* गलत! *-2 pts*\n✅ सही था: *${LETTERS[qData.ans]}) ${correctOption}*\n📊 Total: *${allScores[sender]} pts*`,
+      text: `❌ *@${name}* galat! *-2 pts*\n✅ Sahi tha: *${LETTERS[qData.ans]}) ${correctOption}*\n📊 Total: *${allScores[sender]} pts*`,
       mentions: [sender]
     });
     return 'wrong';
@@ -164,7 +177,7 @@ async function processAnswer(sock, jid, sender, session, answerIndex, nameOverri
 }
 
 // ─────────────────────────────────────────
-//  SEND NEXT QUESTION
+//  SEND NEXT QUESTION (text mode)
 // ─────────────────────────────────────────
 async function sendNextQuestion(sock, jid, mode = 'text') {
   const session = activeQuizzes.get(jid);
@@ -175,22 +188,22 @@ async function sendNextQuestion(sock, jid, mode = 'text') {
     const scores = quizScores.get(jid);
     let finalText = `🎉 *QUIZ COMPLETED!* 🎉\n\n`;
     finalText += formatLeaderboard(scores, session.participants);
-    finalText += `\n\n🔁 फिर से शुरू करें *.quiz* या *.jee* से`;
+    finalText += `\n\n🔁 Phir se shuru karo *.quiz* ya *.jee* se`;
     await sock.sendMessage(jid, { text: finalText });
     return;
   }
 
   const qData = session.questions[session.current];
   session.answered.clear();
+  session.pollVoters = new Set();
   session.currentPollId = null;
 
   const subjectEmoji = { P: '⚛️', C: '🧪', M: '📐' };
   const emoji = subjectEmoji[qData.subject] || '📚';
 
-  // ── Header text (always sent) ──
   const headerText =
     `🌿 *Quiz* 🌿\n` +
-    `〔 *Question ${session.current + 1} / ${session.questions.length}* 〕\n` +
+    `[ *Question ${session.current + 1} / ${session.questions.length}* ]\n` +
     `${emoji} Chapter: *${qData.category}*\n\n` +
     `❓ *Question-*\n` +
     `${qData.q}\n\n` +
@@ -198,7 +211,6 @@ async function sendNextQuestion(sock, jid, mode = 'text') {
 
   await sock.sendMessage(jid, { text: headerText });
 
-  // ── Poll (radio buttons) ──
   let pollMsg;
   try {
     pollMsg = await sock.sendMessage(jid, {
@@ -213,14 +225,12 @@ async function sendNextQuestion(sock, jid, mode = 'text') {
       pollToQuiz.set(pollMsg.key.id, { jid, questionIndex: session.current });
     }
   } catch (e) {
-    // Fallback text options
     let fallback = `*Options:*\n`;
-    qData.options.forEach((opt, i) => { fallback += `  ${LETTERS[i]}️⃣  ${opt}\n`; });
-    fallback += `\n📝 Reply *A / B / C / D*`;
+    qData.options.forEach((opt, i) => { fallback += `  ${LETTERS[i]})  ${opt}\n`; });
+    fallback += `\n📝 Type A / B / C / D`;
     await sock.sendMessage(jid, { text: fallback });
   }
 
-  // ── Auto-timeout ──
   session.timeout = setTimeout(async () => {
     const cur = activeQuizzes.get(jid);
     if (!cur || cur.current !== session.current) return;
@@ -235,7 +245,8 @@ async function sendNextQuestion(sock, jid, mode = 'text') {
 }
 
 // ─────────────────────────────────────────
-//  POLL VOTE HANDLER (called from index.js)
+//  POLL VOTE HANDLER — Text mode (.quiz)
+//  Blocks multiple votes from same user
 // ─────────────────────────────────────────
 module.exports.handlePollVote = async function(sock, pollUpdate) {
   try {
@@ -249,14 +260,20 @@ module.exports.handlePollVote = async function(sock, pollUpdate) {
 
     const sender = pollUpdate.voter;
     const selectedOptions = pollUpdate.selectedOptions || [];
+
+    // Block multiple votes
+    if (!session.pollVoters) session.pollVoters = new Set();
+    if (session.pollVoters.has(sender)) return true; // silent ignore
     if (!selectedOptions.length) return false;
+    session.pollVoters.add(sender);
 
     const chosenText = selectedOptions[0];
     const qData = session.questions[session.current];
     const chosenIndex = qData.options.indexOf(chosenText);
     if (chosenIndex === -1) return false;
 
-    await processAnswer(sock, jid, sender, session, chosenIndex, null);
+    // Pass null as msgKey (poll votes can't be reacted to)
+    await processAnswer(sock, jid, sender, session, chosenIndex, null, null);
     return true;
   } catch (e) {
     console.error('[Quiz PollVote Error]', e.message);
@@ -265,13 +282,15 @@ module.exports.handlePollVote = async function(sock, pollUpdate) {
 };
 
 // ─────────────────────────────────────────
-//  TEXT ANSWER HANDLER (called from handler.js)
+//  TEXT ANSWER HANDLER — passes msg.key for react
 // ─────────────────────────────────────────
 module.exports.handleAnswer = async function(sock, msg) {
   const jid = msg.key.remoteJid;
   const sender = msg.key.participant || msg.key.remoteJid;
   const session = activeQuizzes.get(jid);
   if (!session) return false;
+  // Only handle text mode here; image mode handled by jee.js
+  if (session.mode === 'image') return false;
 
   const rawText = extractText(msg);
   const answerIndex = parseAnswer(rawText);
@@ -281,12 +300,13 @@ module.exports.handleAnswer = async function(sock, msg) {
     session.participants[sender] = msg.pushName || sender.split('@')[0];
   }
 
-  await processAnswer(sock, jid, sender, session, answerIndex, session.participants[sender]);
+  // Pass msg.key so processAnswer can react on student's message
+  await processAnswer(sock, jid, sender, session, answerIndex, session.participants[sender], msg.key);
   return true;
 };
 
 // ─────────────────────────────────────────
-//  EXPORTED SESSION MAP (for jee.js to use)
+//  EXPORTED MAPS & HELPERS
 // ─────────────────────────────────────────
 module.exports.activeQuizzes = activeQuizzes;
 module.exports.quizScores    = quizScores;
@@ -315,7 +335,6 @@ module.exports = {
     const sender = msg.key.participant || msg.key.remoteJid;
     const subCmd = args[0]?.toLowerCase() || 'start';
 
-    // Leaderboard
     if (['leaderboard', 'lb'].includes(subCmd)) {
       const scores = quizScores.get(jid);
       const session = activeQuizzes.get(jid);
@@ -323,7 +342,6 @@ module.exports = {
       return;
     }
 
-    // Score
     if (subCmd === 'score') {
       const scores = quizScores.get(jid);
       const myScore = scores?.[sender] || 0;
@@ -332,7 +350,6 @@ module.exports = {
       return;
     }
 
-    // Stop
     if (['stop', 'end'].includes(subCmd)) {
       const session = activeQuizzes.get(jid);
       if (!session) { await sock.sendMessage(jid, { text: '❌ No quiz is running!' }, { quoted: msg }); return; }
@@ -349,7 +366,6 @@ module.exports = {
       return;
     }
 
-    // Subject filter
     let subjects = ['P', 'C', 'M'];
     if (subCmd === 'physics')   subjects = ['P'];
     if (subCmd === 'chemistry') subjects = ['C'];
@@ -359,7 +375,8 @@ module.exports = {
     const questions = getRandomQuestions(10, subjects);
     const session = {
       questions, current: 0, scores: {}, participants: {},
-      answered: new Set(), timeout: null, currentPollId: null, mode: 'text'
+      answered: new Set(), pollVoters: new Set(),
+      timeout: null, currentPollId: null, mode: 'text'
     };
     session.participants[sender] = msg.pushName || sender.split('@')[0];
     activeQuizzes.set(jid, session);

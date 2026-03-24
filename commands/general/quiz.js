@@ -1,10 +1,5 @@
 /**
- * 🧠 QUIZ COMMAND — Full Image Card + Poll + Auto Next
- * .quiz        → start
- * .quiz score  → score
- * .quiz top    → leaderboard
- * .quiz stop   → stop
- *
+ * QUIZ — Clean Image + Simple Poll + White Solution
  * © Courier Well — Education Platform
  */
 
@@ -14,15 +9,15 @@ const path = require('path');
 const DATA_FILE  = path.join(__dirname, '../../marks_quiz.json');
 const SCORE_FILE = path.join(__dirname, '../../quiz_scores.json');
 
-const activeSessions = {}; // { jid: { q, timer, qNum } }
-const answeredMap    = {}; // { jid: Set(senderIds) }
-const qCounters      = {}; // { jid: number } -- question counter per chat
+const activeSessions = {};
+const answeredMap    = {};
+const qCounters      = {};
 
-const AUTO_DELAY  = 8000;  // 8s baad next question
+const AUTO_DELAY  = 8000;
 const TIMEOUT_SEC = 30;
 const TIMEOUT_MS  = TIMEOUT_SEC * 1000;
 
-// ── File helpers ───────────────────────────────────────────────────────────────
+// ── helpers ──────────────────────────────────────────────────────────────────
 function loadQuestions() {
   if (!fs.existsSync(DATA_FILE)) return [];
   try {
@@ -35,389 +30,277 @@ function loadScores() {
   try { return JSON.parse(fs.readFileSync(SCORE_FILE, 'utf8')); }
   catch { return {}; }
 }
-function saveScores(s) {
-  fs.writeFileSync(SCORE_FILE, JSON.stringify(s, null, 2), 'utf8');
-}
+function saveScores(s) { fs.writeFileSync(SCORE_FILE, JSON.stringify(s, null, 2)); }
 function randItem(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
-// ── Canvas helpers ─────────────────────────────────────────────────────────────
-function wrapText(ctx, text, maxWidth) {
+function wrapText(ctx, text, maxW) {
   const words = text.split(' ');
-  const lines = [];
-  let line = '';
+  const lines = []; let line = '';
   for (const w of words) {
-    const test = line ? line + ' ' + w : w;
-    if (ctx.measureText(test).width > maxWidth && line) {
-      lines.push(line); line = w;
-    } else { line = test; }
+    const t = line ? line + ' ' + w : w;
+    if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w; }
+    else line = t;
   }
   if (line) lines.push(line);
   return lines;
 }
 
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
-
 function gradBar(ctx, x, y, w, h) {
   const g = ctx.createLinearGradient(x, y, x + w, y);
-  g.addColorStop(0, '#6C63FF');
-  g.addColorStop(1, '#FF6584');
-  ctx.fillStyle = g;
-  ctx.fillRect(x, y, w, h);
+  g.addColorStop(0, '#6C63FF'); g.addColorStop(1, '#FF6584');
+  ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
 }
 
-// ── Generate QUESTION image ──────────────────────────────────────────────────
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+}
+
+// ── QUESTION IMAGE (dark, only question text) ────────────────────────────────
 async function generateQuestionImage(q, qNum) {
   let createCanvas;
   try { ({ createCanvas } = require('canvas')); } catch { return null; }
 
-  const W   = 820;
-  const PAD = 30;
-  const C   = {
-    bg:      '#0D0D1A',
-    header:  '#12122A',
-    card:    '#161630',
-    text:    '#FFFFFF',
-    sub:     '#A0AEC0',
-    accent:  '#6C63FF',
-    pink:    '#FF6584',
-    green:   '#43D9A2',
-    yellow:  '#FFD166',
-    divider: '#ffffff18',
-    qBg:     '#1A1A35',
-  };
-  const OPT_COLORS = [C.accent, C.pink, C.green, C.yellow];
-  const LABELS     = ['A', 'B', 'C', 'D'];
+  const W = 820, PAD = 44;
 
-  // ─ Measure sizes
+  // measure
   const tmp = createCanvas(W, 10).getContext('2d');
-  tmp.font  = 'bold 21px Arial';
-  const qLines   = wrapText(tmp, q.question, W - PAD * 2 - 60);
-  tmp.font  = '19px Arial';
-  const optLines = q.options.map(o => wrapText(tmp, o, W - PAD * 2 - 80));
+  tmp.font  = 'bold 24px Arial';
+  const qLines = wrapText(tmp, q.question, W - PAD * 2);
 
-  const HEADER_H  = 68;
-  const BADGE_H   = 34;
-  const Q_TOP     = HEADER_H + BADGE_H + 20;
-  const Q_LINE_H  = 30;
-  const Q_H       = qLines.length * Q_LINE_H + 16;
-  const OPT_PAD   = 14;
-  const OPT_LH    = 26;
-  const OPT_GAP   = 10;
-  let   optsH     = 0;
-  for (const lines of optLines) optsH += OPT_PAD * 2 + lines.length * OPT_LH + OPT_GAP;
-  const FOOTER_H  = 54;
-  const H         = Q_TOP + Q_H + 18 + optsH + FOOTER_H + 10;
+  const HEADER_H = 72;
+  const TOP_PAD  = 28;
+  const LINE_H   = 38;
+  const BOT_PAD  = 36;
+  const FOOTER_H = 56;
+  const H = HEADER_H + TOP_PAD + qLines.length * LINE_H + BOT_PAD + FOOTER_H;
 
   const cv  = createCanvas(W, H);
   const ctx = cv.getContext('2d');
 
-  // Background
-  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
-
-  // Top bar
+  // bg
+  ctx.fillStyle = '#0D0D1A'; ctx.fillRect(0, 0, W, H);
   gradBar(ctx, 0, 0, W, 5);
 
-  // Header
-  ctx.fillStyle = C.header; ctx.fillRect(0, 5, W, HEADER_H);
-
-  // Header left: icon + title
-  ctx.font = '30px Arial'; ctx.fillStyle = C.text;
-  ctx.fillText('🧠', PAD, 48);
-  ctx.font = 'bold 26px Arial';
-  ctx.fillText('MHT-CET QUIZ', PAD + 42, 48);
-
-  // Header right: chapter
+  // header
+  ctx.fillStyle = '#12122A'; ctx.fillRect(0, 5, W, HEADER_H);
+  ctx.font = '32px Arial'; ctx.fillStyle = '#fff';
+  ctx.fillText('🧠', PAD - 4, 50);
+  ctx.font = 'bold 27px Arial';
+  ctx.fillText('MHT-CET QUIZ', PAD + 40, 50);
   if (q.chapter) {
-    const tag = q.chapter.length > 25 ? q.chapter.slice(0, 22) + '…' : q.chapter;
-    ctx.font = '13px Arial'; ctx.fillStyle = C.accent;
+    ctx.font = '14px Arial'; ctx.fillStyle = '#6C63FF';
     ctx.textAlign = 'right';
-    ctx.fillText(tag, W - PAD, 48);
+    const tag = q.chapter.length > 26 ? q.chapter.slice(0,23)+'…' : q.chapter;
+    ctx.fillText(tag, W - PAD, 50);
     ctx.textAlign = 'left';
   }
 
-  // Q Number + Year badge
-  const badgeY = HEADER_H + 8;
-  // Q number pill
-  ctx.fillStyle = C.accent;
-  roundRect(ctx, PAD, badgeY, 52, 24, 12); ctx.fill();
-  ctx.font = 'bold 13px Arial'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
-  ctx.fillText(`Q ${qNum}`, PAD + 26, badgeY + 16);
-  ctx.textAlign = 'left';
-
-  // Year badge
+  // Q-num pill + year
+  const pillY = HEADER_H + 14;
+  ctx.fillStyle = '#6C63FF';
+  roundRect(ctx, PAD, pillY, 56, 26, 13); ctx.fill();
+  ctx.font = 'bold 14px Arial'; ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center'; ctx.fillText('Q ' + qNum, PAD + 28, pillY + 18); ctx.textAlign = 'left';
   if (q.year) {
-    ctx.font = '13px Arial'; ctx.fillStyle = C.pink;
-    ctx.fillText('📅 ' + q.year, PAD + 62, badgeY + 16);
+    ctx.font = '14px Arial'; ctx.fillStyle = '#FF6584';
+    ctx.fillText('📅 ' + q.year, PAD + 68, pillY + 18);
   }
 
-  // Question box
-  ctx.fillStyle = C.qBg;
-  roundRect(ctx, PAD, Q_TOP, W - PAD * 2, Q_H + 8, 12); ctx.fill();
-
-  ctx.font = 'bold 21px Arial'; ctx.fillStyle = C.text;
-  let qY = Q_TOP + Q_LINE_H;
-  for (const line of qLines) { ctx.fillText(line, PAD + 14, qY); qY += Q_LINE_H; }
-
-  // Options
-  let optY = Q_TOP + Q_H + 26;
-  for (let i = 0; i < q.options.length; i++) {
-    const lines = optLines[i];
-    const boxH  = OPT_PAD * 2 + lines.length * OPT_LH;
-
-    // Option card
-    ctx.fillStyle = C.card;
-    roundRect(ctx, PAD, optY, W - PAD * 2, boxH, 10); ctx.fill();
-
-    // Left color bar
-    ctx.fillStyle = OPT_COLORS[i];
-    roundRect(ctx, PAD, optY, 5, boxH, 3); ctx.fill();
-
-    // Label circle
-    ctx.beginPath();
-    ctx.arc(PAD + 26, optY + boxH / 2, 15, 0, Math.PI * 2);
-    ctx.fillStyle = OPT_COLORS[i]; ctx.fill();
-    ctx.font = 'bold 14px Arial'; ctx.fillStyle = '#000';
-    ctx.textAlign = 'center';
-    ctx.fillText(LABELS[i], PAD + 26, optY + boxH / 2 + 5);
-    ctx.textAlign = 'left';
-
-    // Option text
-    ctx.font = '19px Arial'; ctx.fillStyle = C.text;
-    for (let l = 0; l < lines.length; l++) {
-      ctx.fillText(lines[l], PAD + 50, optY + OPT_PAD + (l + 1) * OPT_LH - 4);
-    }
-    optY += boxH + OPT_GAP;
+  // question text — nice and roomy
+  ctx.font = 'bold 24px Arial'; ctx.fillStyle = '#FFFFFF';
+  let y = HEADER_H + TOP_PAD + 44;
+  for (const line of qLines) {
+    ctx.fillText(line, PAD, y);
+    y += LINE_H;
   }
 
-  // Divider
-  ctx.fillStyle = C.divider; ctx.fillRect(PAD, H - FOOTER_H - 2, W - PAD * 2, 1);
+  // footer divider
+  ctx.fillStyle = '#ffffff15';
+  ctx.fillRect(PAD, H - FOOTER_H, W - PAD*2, 1);
 
-  // Footer left
-  ctx.font = '14px Arial'; ctx.fillStyle = C.sub;
-  ctx.fillText('⏰ ' + TIMEOUT_SEC + 's  •  Vote karo poll mein', PAD, H - FOOTER_H + 22);
+  // footer hint
+  ctx.font = '14px Arial'; ctx.fillStyle = '#718096';
+  ctx.fillText('⏰ ' + TIMEOUT_SEC + ' seconds  •  Neeche poll mein vote karo', PAD, H - FOOTER_H + 22);
 
-  // Footer right: Courier Well branding
-  const brand = 'COURIER WELL';
-  const subTx = 'Education Platform';
-  ctx.font = 'bold 15px Arial';
-  const bW  = ctx.measureText(brand).width;
-  const sW  = ctx.measureText(subTx).width;
-  const maxW = Math.max(bW, sW);
-  const logoX = W - PAD - maxW - 30;
-  const logoY = H - FOOTER_H + 10;
-
-  // Logo circle
-  ctx.beginPath();
-  ctx.arc(logoX - 14, logoY + 11, 12, 0, Math.PI * 2);
-  const lg = ctx.createLinearGradient(logoX - 26, logoY, logoX - 2, logoY + 22);
-  lg.addColorStop(0, '#6C63FF'); lg.addColorStop(1, '#FF6584');
+  // Courier Well brand
+  ctx.font = 'bold 14px Arial'; ctx.fillStyle = '#FFFFFF';
+  const bW = ctx.measureText('COURIER WELL').width;
+  const lx = W - PAD - bW - 28;
+  const ly = H - FOOTER_H + 8;
+  ctx.beginPath(); ctx.arc(lx-12, ly+11, 11, 0, Math.PI*2);
+  const lg = ctx.createLinearGradient(lx-23,ly,lx-1,ly+22);
+  lg.addColorStop(0,'#6C63FF'); lg.addColorStop(1,'#FF6584');
   ctx.fillStyle = lg; ctx.fill();
-  ctx.font = 'bold 10px Arial'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
-  ctx.fillText('CW', logoX - 14, logoY + 15);
-  ctx.textAlign = 'left';
+  ctx.font = 'bold 9px Arial'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+  ctx.fillText('CW', lx-12, ly+15); ctx.textAlign = 'left';
+  ctx.font = 'bold 14px Arial'; ctx.fillStyle = '#fff';
+  ctx.fillText('COURIER WELL', lx+2, ly+14);
+  ctx.font = '11px Arial'; ctx.fillStyle = '#6C63FF';
+  ctx.fillText('Education Platform', lx+2, ly+27);
 
-  ctx.font = 'bold 15px Arial'; ctx.fillStyle = '#FFFFFF';
-  ctx.fillText(brand, logoX + 2, logoY + 14);
-  ctx.font = '11px Arial'; ctx.fillStyle = C.accent;
-  ctx.fillText(subTx, logoX + 2, logoY + 28);
-
-  // Bottom bar
-  gradBar(ctx, 0, H - 5, W, 5);
-
+  gradBar(ctx, 0, H-5, W, 5);
   return cv.toBuffer('image/png');
 }
 
-// ── Generate SOLUTION image ──────────────────────────────────────────────────
+// ── SOLUTION IMAGE (white, airy) ──────────────────────────────────────────────
 async function generateSolutionImage(q, qNum, isCorrect, chosenIdx) {
   let createCanvas;
   try { ({ createCanvas } = require('canvas')); } catch { return null; }
 
-  const W   = 820;
-  const PAD = 30;
-  const C   = {
-    bg:     '#0D0D1A',
-    header: '#12122A',
-    text:   '#FFFFFF',
-    sub:    '#A0AEC0',
-    accent: '#6C63FF',
-    pink:   '#FF6584',
-    green:  '#43D9A2',
-    red:    '#FF4D6D',
-    solBg:  '#0F1E1A',
-    divider:'#ffffff18',
-  };
-  const LABELS = ['A', 'B', 'C', 'D'];
+  const W = 820, PAD = 50;
+  const LABELS = ['A','B','C','D'];
 
   const tmp = createCanvas(W, 10).getContext('2d');
-  tmp.font  = '18px Arial';
-  const solText  = q.explanation || 'No solution available.';
-  const solLines = wrapText(tmp, solText, W - PAD * 2 - 20);
-  tmp.font  = 'bold 20px Arial';
-  const qLines   = wrapText(tmp, q.question, W - PAD * 2 - 20);
+  tmp.font  = '20px Arial';
+  const solText  = q.explanation || 'Solution available in textbook.';
+  const solLines = wrapText(tmp, solText, W - PAD*2 - 16);
+  tmp.font = 'bold 22px Arial';
+  const qLines = wrapText(tmp, q.question, W - PAD*2);
 
-  const HEADER_H = 68;
-  const BADGE_H  = 34;
-  const STATUS_H = 60;
-  const Q_H      = qLines.length * 28 + 20;
-  const ANS_H    = 48;
-  const SOL_H    = solLines.length * 26 + 24;
-  const FOOTER_H = 50;
-  const H        = HEADER_H + BADGE_H + 16 + STATUS_H + 10 + Q_H + ANS_H + 16 + SOL_H + FOOTER_H + 10;
+  // heights
+  const TOP       = 60;
+  const STATUS_H  = 80;
+  const Q_H       = qLines.length * 32 + 24;
+  const ANS_H     = (!isCorrect ? 64 : 44) + 16;
+  const SOL_H     = solLines.length * 30 + 48;
+  const FOOTER_H  = 64;
+  const H = TOP + STATUS_H + 32 + Q_H + 20 + ANS_H + 20 + SOL_H + FOOTER_H;
 
   const cv  = createCanvas(W, H);
   const ctx = cv.getContext('2d');
 
-  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
-  gradBar(ctx, 0, 0, W, 5);
+  // white background
+  ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
 
-  // Header
-  ctx.fillStyle = C.header; ctx.fillRect(0, 5, W, HEADER_H);
-  ctx.font = '30px Arial'; ctx.fillText('💡', PAD, 48);
-  ctx.font = 'bold 26px Arial'; ctx.fillStyle = C.text;
-  ctx.fillText('SOLUTION', PAD + 42, 48);
-  if (q.chapter) {
-    ctx.font = '13px Arial'; ctx.fillStyle = C.accent; ctx.textAlign = 'right';
-    ctx.fillText(q.chapter.length > 25 ? q.chapter.slice(0, 22) + '…' : q.chapter, W - PAD, 48);
-    ctx.textAlign = 'left';
-  }
+  // top accent bar
+  gradBar(ctx, 0, 0, W, 6);
 
-  // Badge row
-  const bY = HEADER_H + 8;
-  ctx.fillStyle = C.accent;
-  roundRect(ctx, PAD, bY, 52, 24, 12); ctx.fill();
-  ctx.font = 'bold 13px Arial'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
-  ctx.fillText(`Q ${qNum}`, PAD + 26, bY + 16); ctx.textAlign = 'left';
-  if (q.year) {
-    ctx.font = '13px Arial'; ctx.fillStyle = C.pink;
-    ctx.fillText('📅 ' + q.year, PAD + 62, bY + 16);
-  }
+  // ── Status block (colored band)
+  const stColor = isCorrect ? '#F0FFF4' : '#FFF5F5';
+  const stBorder = isCorrect ? '#48BB78' : '#FC8181';
+  const stText   = isCorrect ? '✅  Sahi Jawab!' : '❌  Galat Jawab!';
+  const stTColor = isCorrect ? '#276749' : '#9B2335';
 
-  // Status banner
-  const stY = HEADER_H + BADGE_H + 16;
-  ctx.fillStyle = isCorrect ? '#0A2A1A' : '#2A0A12';
-  roundRect(ctx, PAD, stY, W - PAD * 2, STATUS_H, 12); ctx.fill();
-  ctx.font = 'bold 28px Arial';
-  ctx.fillStyle = isCorrect ? C.green : C.red;
+  ctx.fillStyle = stColor;
+  ctx.fillRect(0, 6, W, STATUS_H);
+  ctx.fillStyle = stBorder;
+  ctx.fillRect(0, 6, 6, STATUS_H);
+
+  ctx.font = 'bold 30px Arial'; ctx.fillStyle = stTColor;
   ctx.textAlign = 'center';
-  ctx.fillText(
-    isCorrect ? '✅  Sahi Jawab!' : '❌  Galat Jawab!',
-    W / 2, stY + 38
-  );
+  ctx.fillText(stText, W/2, 6 + STATUS_H/2 + 11);
   ctx.textAlign = 'left';
 
-  // Question recap
-  let recapY = stY + STATUS_H + 16;
-  ctx.font = 'bold 20px Arial'; ctx.fillStyle = C.sub;
-  for (const line of qLines) { ctx.fillText(line, PAD, recapY); recapY += 28; }
+  // ── Q number + chapter label
+  let y = 6 + STATUS_H + 32;
+  ctx.font = 'bold 13px Arial'; ctx.fillStyle = '#6C63FF';
+  const pill = `Q ${qNum}${q.chapter ? '  ·  ' + q.chapter : ''}${q.year ? '  ·  ' + q.year : ''}`;
+  ctx.fillText(pill, PAD, y);
+  y += 22;
 
-  // Answer row
-  const ansY = recapY + 8;
-  // Wrong answer (if applicable)
+  // thin rule
+  ctx.fillStyle = '#E2E8F0'; ctx.fillRect(PAD, y, W - PAD*2, 1); y += 16;
+
+  // ── Question text
+  ctx.font = 'bold 22px Arial'; ctx.fillStyle = '#1A202C';
+  for (const line of qLines) { ctx.fillText(line, PAD, y); y += 32; }
+  y += 20;
+
+  // ── Answer rows
   if (!isCorrect && chosenIdx !== undefined) {
-    ctx.font = '18px Arial'; ctx.fillStyle = C.red;
-    ctx.fillText(`❌ Tumne chose: ${LABELS[chosenIdx]}. ${q.options[chosenIdx]}`, PAD, ansY + 20);
+    ctx.font = '20px Arial'; ctx.fillStyle = '#E53E3E';
+    ctx.fillText(`✗  Your answer:  ${LABELS[chosenIdx]}. ${q.options[chosenIdx]}`, PAD, y);
+    y += 36;
   }
-  ctx.font = 'bold 20px Arial'; ctx.fillStyle = C.green;
-  ctx.fillText(`✅ Correct: ${LABELS[q.ans]}. ${q.options[q.ans]}`, PAD, ansY + (isCorrect ? 28 : 46));
+  ctx.font = 'bold 21px Arial'; ctx.fillStyle = '#276749';
+  ctx.fillText(`✓  Correct answer:  ${LABELS[q.ans]}. ${q.options[q.ans]}`, PAD, y);
+  y += 20;
 
-  // Solution box
-  const solBoxY = ansY + ANS_H + 16;
-  ctx.fillStyle = C.solBg;
-  roundRect(ctx, PAD, solBoxY, W - PAD * 2, SOL_H, 10); ctx.fill();
-  ctx.fillStyle = C.accent;
-  roundRect(ctx, PAD, solBoxY, 4, SOL_H, 2); ctx.fill();
+  // thin rule
+  ctx.fillStyle = '#E2E8F0'; ctx.fillRect(PAD, y+8, W-PAD*2, 1); y += 28;
 
-  ctx.font = 'bold 14px Arial'; ctx.fillStyle = C.accent;
-  ctx.fillText('SOLUTION', PAD + 16, solBoxY + 20);
+  // ── Solution box
+  const solBoxH = solLines.length * 30 + 48;
+  ctx.fillStyle = '#F7F8FC';
+  roundRect(ctx, PAD, y, W-PAD*2, solBoxH, 14); ctx.fill();
+  ctx.strokeStyle = '#CBD5E0'; ctx.lineWidth = 1;
+  roundRect(ctx, PAD, y, W-PAD*2, solBoxH, 14); ctx.stroke();
 
-  ctx.font = '18px Arial'; ctx.fillStyle = C.text;
-  let slY = solBoxY + 30;
-  for (const line of solLines) { ctx.fillText(line, PAD + 16, slY); slY += 26; }
+  // left accent
+  ctx.fillStyle = '#6C63FF';
+  roundRect(ctx, PAD, y, 5, solBoxH, 3); ctx.fill();
 
-  // Divider
-  ctx.fillStyle = C.divider; ctx.fillRect(PAD, H - FOOTER_H - 2, W - PAD * 2, 1);
+  ctx.font = 'bold 14px Arial'; ctx.fillStyle = '#6C63FF';
+  ctx.fillText('SOLUTION', PAD + 20, y + 24);
 
-  // Footer
-  ctx.font = '14px Arial'; ctx.fillStyle = C.sub;
-  ctx.fillText('Next question aane wala hai...', PAD, H - FOOTER_H + 22);
+  ctx.font = '20px Arial'; ctx.fillStyle = '#2D3748';
+  let sy = y + 46;
+  for (const line of solLines) { ctx.fillText(line, PAD + 20, sy); sy += 30; }
 
-  const brand = 'COURIER WELL';
-  ctx.font = 'bold 15px Arial';
-  const bW  = ctx.measureText(brand).width;
-  const logoX = W - PAD - bW - 30;
-  const lY    = H - FOOTER_H + 10;
-  ctx.beginPath();
-  ctx.arc(logoX - 14, lY + 11, 12, 0, Math.PI * 2);
-  const lg = ctx.createLinearGradient(logoX - 26, lY, logoX - 2, lY + 22);
-  lg.addColorStop(0, '#6C63FF'); lg.addColorStop(1, '#FF6584');
-  ctx.fillStyle = lg; ctx.fill();
-  ctx.font = 'bold 10px Arial'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
-  ctx.fillText('CW', logoX - 14, lY + 15); ctx.textAlign = 'left';
-  ctx.font = 'bold 15px Arial'; ctx.fillStyle = '#fff';
-  ctx.fillText(brand, logoX + 2, lY + 14);
-  ctx.font = '11px Arial'; ctx.fillStyle = C.accent;
-  ctx.fillText('Education Platform', logoX + 2, lY + 28);
+  // ── Footer
+  const fy = H - FOOTER_H;
+  ctx.fillStyle = '#EDF2F7'; ctx.fillRect(0, fy, W, FOOTER_H);
 
-  gradBar(ctx, 0, H - 5, W, 5);
+  ctx.font = '14px Arial'; ctx.fillStyle = '#718096';
+  ctx.fillText('Next question aane wala hai...', PAD, fy + 26);
 
+  // Courier Well
+  ctx.font = 'bold 14px Arial'; ctx.fillStyle = '#1A202C';
+  const bW2 = ctx.measureText('COURIER WELL').width;
+  const lx2 = W - PAD - bW2 - 28;
+  const ly2 = fy + 10;
+  ctx.beginPath(); ctx.arc(lx2-12, ly2+11, 11, 0, Math.PI*2);
+  const lg2 = ctx.createLinearGradient(lx2-23,ly2,lx2-1,ly2+22);
+  lg2.addColorStop(0,'#6C63FF'); lg2.addColorStop(1,'#FF6584');
+  ctx.fillStyle = lg2; ctx.fill();
+  ctx.font = 'bold 9px Arial'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+  ctx.fillText('CW', lx2-12, ly2+15); ctx.textAlign = 'left';
+  ctx.font = 'bold 14px Arial'; ctx.fillStyle = '#1A202C';
+  ctx.fillText('COURIER WELL', lx2+2, ly2+14);
+  ctx.font = '11px Arial'; ctx.fillStyle = '#6C63FF';
+  ctx.fillText('Education Platform', lx2+2, ly2+28);
+
+  gradBar(ctx, 0, H-5, W, 5);
   return cv.toBuffer('image/png');
 }
 
-// ── Send Quiz Round ────────────────────────────────────────────────────────────
+// ── Send Quiz Round ───────────────────────────────────────────────────────────
 async function sendQuiz(sock, jid, quotedMsg) {
   const questions = loadQuestions();
   if (!questions.length) {
-    await sock.sendMessage(jid, { text: '🚫 Quiz data nahi mila! Owner se .scrape chalwao.' });
-    return;
+    await sock.sendMessage(jid, { text: '🚫 Quiz data nahi mila!' }); return;
   }
 
   if (!qCounters[jid]) qCounters[jid] = 0;
   qCounters[jid]++;
   const qNum   = qCounters[jid];
   const q      = randItem(questions);
-  const LABELS = ['A', 'B', 'C', 'D'];
+  const LABELS = ['A','B','C','D'];
+  const opts   = { quoted: quotedMsg || undefined };
 
   // 1️⃣ Question image
   let imgBuf = null;
   try { imgBuf = await generateQuestionImage(q, qNum); } catch {}
-
-  const sendOpts = quotedMsg ? { quoted: quotedMsg } : {};
-
   if (imgBuf) {
-    await sock.sendMessage(jid, {
-      image:    imgBuf,
-      mimetype: 'image/png',
-      caption:  ''
-    }, sendOpts);
+    await sock.sendMessage(jid, { image: imgBuf, mimetype: 'image/png', caption: '' }, opts);
   } else {
-    // Fallback text
-    const L = ['A','B','C','D'];
     await sock.sendMessage(jid, {
-      text:
-        `🧠 *Q${qNum}. ${q.question}*\n\n` +
-        q.options.map((o, i) => `${L[i]}. ${o}`).join('\n') +
+      text: `🧠 *Q${qNum}. ${q.question}*\n\n` +
+        q.options.map((o,i) => `${LABELS[i]}. ${o}`).join('\n') +
         `\n\n⏰ ${TIMEOUT_SEC}s\n_© Courier Well_`
-    }, sendOpts);
+    }, opts);
   }
 
-  // 2️⃣ WhatsApp Poll
+  // 2️⃣ Poll — only options, no question text
   try {
     await sock.sendMessage(jid, {
       poll: {
-        name:            `Q${qNum}. ${q.question.slice(0, 90)}${q.question.length > 90 ? '…' : ''}`,
-        values:          q.options.map((o, i) => `${LABELS[i]}. ${o.slice(0, 100)}`),
+        name:            `Q${qNum} — Choose the correct answer:`,
+        values:          LABELS.slice(0, q.options.length).map((l, i) => `${l}. ${q.options[i].slice(0,100)}`),
         selectableCount: 1,
       }
     });
@@ -426,23 +309,15 @@ async function sendQuiz(sock, jid, quotedMsg) {
   // 3️⃣ Auto timeout
   const timer = setTimeout(async () => {
     if (!activeSessions[jid]) return;
-    delete activeSessions[jid];
-    delete answeredMap[jid];
+    delete activeSessions[jid]; delete answeredMap[jid];
 
     let solBuf = null;
     try { solBuf = await generateSolutionImage(q, qNum, false, undefined); } catch {}
-
     if (solBuf) {
-      await sock.sendMessage(jid, {
-        image:    solBuf,
-        mimetype: 'image/png',
-        caption:  '⏰ Time Up!'
-      });
+      await sock.sendMessage(jid, { image: solBuf, mimetype: 'image/png', caption: '⏰ Time Up!' });
     } else {
       await sock.sendMessage(jid, {
-        text:
-          `⏰ *Time Up!*\n\nSahi Answer: *${LABELS[q.ans]}. ${q.options[q.ans]}*\n` +
-          `${q.explanation ? `\n💡 ${q.explanation.slice(0, 300)}` : ''}\n\n_© Courier Well_`
+        text: `⏰ *Time Up!*\nSahi: *${LABELS[q.ans]}. ${q.options[q.ans]}*\n_© Courier Well_`
       });
     }
     setTimeout(() => sendQuiz(sock, jid, null), AUTO_DELAY);
@@ -452,135 +327,94 @@ async function sendQuiz(sock, jid, quotedMsg) {
   activeSessions[jid] = { q, timer, qNum };
 }
 
-// ── Module ─────────────────────────────────────────────────────────────────────────────
+// ── Module ────────────────────────────────────────────────────────────────────
 module.exports = {
-  name:     'quiz',
-  aliases:  ['q', 'mcq'],
+  name: 'quiz', aliases: ['q','mcq'],
   description: 'MHT-CET Quiz — Image + Poll + Auto Next',
   category: 'general',
-  usage:    '.quiz | .quiz ans A | .quiz score | .quiz top | .quiz stop',
+  usage: '.quiz | .quiz ans A | .quiz score | .quiz top | .quiz stop',
 
   async execute(sock, msg, args) {
     const jid    = msg.key.remoteJid;
     const sender = msg.key.participant || msg.key.remoteJid;
-    const sub    = (args[0] || '').toLowerCase();
-    const LABELS = ['A', 'B', 'C', 'D'];
+    const sub    = (args[0]||'').toLowerCase();
+    const LABELS = ['A','B','C','D'];
 
-    // ─ score
+    // score
     if (sub === 'score') {
-      const scores = loadScores();
-      const mine   = scores[sender] || { correct: 0, wrong: 0, total: 0 };
-      const acc    = mine.total ? Math.round(mine.correct / mine.total * 100) : 0;
-      await sock.sendMessage(jid, {
-        text:
-          `📊 *Your Quiz Score*\n\n` +
-          `✅ Correct : ${mine.correct}\n` +
-          `❌ Wrong   : ${mine.wrong}\n` +
-          `📝 Total   : ${mine.total}\n` +
-          `🎯 Accuracy: ${acc}%\n\n` +
-          `_© Courier Well — Education Platform_`
+      const s = loadScores()[sender] || { correct:0, wrong:0, total:0 };
+      const acc = s.total ? Math.round(s.correct/s.total*100) : 0;
+      return sock.sendMessage(jid, {
+        text: `📊 *Your Score*\n\n✅ Correct : ${s.correct}\n❌ Wrong   : ${s.wrong}\n📝 Total   : ${s.total}\n🎯 Accuracy: ${acc}%\n\n_© Courier Well — Education Platform_`
       }, { quoted: msg });
-      return;
     }
 
-    // ─ top
+    // top
     if (sub === 'top') {
-      const scores = loadScores();
-      const sorted = Object.entries(scores)
-        .sort((a, b) => b[1].correct - a[1].correct).slice(0, 10);
-      if (!sorted.length) {
-        await sock.sendMessage(jid, { text: '🚫 Abhi koi score nahi!' }, { quoted: msg });
-        return;
-      }
+      const sorted = Object.entries(loadScores()).sort((a,b)=>b[1].correct-a[1].correct).slice(0,10);
+      if (!sorted.length) return sock.sendMessage(jid,{text:'🚫 Koi score nahi abhi!'},{quoted:msg});
       const medals = ['🥇','🥈','🥉'];
-      const board  = sorted.map(([id, s], i) =>
-        `${medals[i] || `${i+1}.`} @${id.split('@')[0]} — ✅ ${s.correct} correct`
-      ).join('\n');
-      await sock.sendMessage(jid, {
-        text: `🏆 *Quiz Leaderboard*\n\n${board}\n\n_© Courier Well — Education Platform_`,
-        mentions: sorted.map(([id]) => id)
+      return sock.sendMessage(jid, {
+        text: `🏆 *Leaderboard*\n\n` +
+          sorted.map(([id,s],i)=>`${medals[i]||i+1+'.'} @${id.split('@')[0]} — ✅ ${s.correct}`).join('\n') +
+          `\n\n_© Courier Well — Education Platform_`,
+        mentions: sorted.map(([id])=>id)
       }, { quoted: msg });
-      return;
     }
 
-    // ─ stop
+    // stop
     if (sub === 'stop') {
-      if (activeSessions[jid]) {
-        clearTimeout(activeSessions[jid].timer);
-        delete activeSessions[jid]; delete answeredMap[jid];
-        await sock.sendMessage(jid, {
-          text: '⛔ Quiz band kar diya!\n_© Courier Well — Education Platform_'
-        }, { quoted: msg });
-      } else {
-        await sock.sendMessage(jid, { text: '❓ Koi active quiz nahi.' }, { quoted: msg });
-      }
-      return;
+      if (!activeSessions[jid]) return sock.sendMessage(jid,{text:'❓ Koi active quiz nahi.'},{quoted:msg});
+      clearTimeout(activeSessions[jid].timer);
+      delete activeSessions[jid]; delete answeredMap[jid];
+      return sock.sendMessage(jid,{text:'⛔ Quiz band!\n_© Courier Well_'},{quoted:msg});
     }
 
-    // ─ ans
+    // ans
     if (sub === 'ans') {
       const session = activeSessions[jid];
-      if (!session) {
-        await sock.sendMessage(jid,
-          { text: '❓ Koi active quiz nahi!\n.quiz se shuru karo.' }, { quoted: msg });
-        return;
-      }
-      if (answeredMap[jid]?.has(sender)) {
-        await sock.sendMessage(jid,
-          { text: '⚠️ Tumne pehle hi jawab de diya!' }, { quoted: msg });
-        return;
-      }
-      const labelMap = { a:0, b:1, c:2, d:3, '1':0, '2':1, '3':2, '4':3 };
-      const chosen   = labelMap[(args[1]||'').toLowerCase()];
-      if (chosen === undefined) {
-        await sock.sendMessage(jid,
-          { text: '⚠️ A, B, C ya D bhejo! Example: .quiz ans B' }, { quoted: msg });
-        return;
-      }
+      if (!session) return sock.sendMessage(jid,{text:'❓ Koi active quiz nahi! .quiz se shuru karo.'},{quoted:msg});
+      if (answeredMap[jid]?.has(sender)) return sock.sendMessage(jid,{text:'⚠️ Pehle hi jawab de diya!'},{quoted:msg});
+      const lm = {a:0,b:1,c:2,d:3,'1':0,'2':1,'3':2,'4':3};
+      const chosen = lm[(args[1]||'').toLowerCase()];
+      if (chosen===undefined) return sock.sendMessage(jid,{text:'⚠️ A/B/C/D bhejo. Example: .quiz ans B'},{quoted:msg});
 
       answeredMap[jid].add(sender);
       clearTimeout(session.timer);
-      const q    = session.q;
-      const qNum = session.qNum;
+      const { q, qNum } = session;
       delete activeSessions[jid]; delete answeredMap[jid];
 
       const scores = loadScores();
-      if (!scores[sender]) scores[sender] = { correct:0, wrong:0, total:0 };
+      if (!scores[sender]) scores[sender] = {correct:0,wrong:0,total:0};
       scores[sender].total++;
-      const isCorrect = chosen === q.ans;
-      if (isCorrect) scores[sender].correct++; else scores[sender].wrong++;
+      const ok = chosen === q.ans;
+      if (ok) scores[sender].correct++; else scores[sender].wrong++;
       saveScores(scores);
 
-      // Solution image
       let solBuf = null;
-      try { solBuf = await generateSolutionImage(q, qNum, isCorrect, chosen); } catch {}
-
+      try { solBuf = await generateSolutionImage(q, qNum, ok, chosen); } catch {}
       if (solBuf) {
         await sock.sendMessage(jid, {
           image:    solBuf,
           mimetype: 'image/png',
-          caption:
-            `${isCorrect ? '✅ Sahi!' : '❌ Galat!'} Score: ✅${scores[sender].correct} | ❌${scores[sender].wrong}\n_© Courier Well_`
+          caption:  `${ok?'✅ Sahi!':'❌ Galat!'}  Score: ✅${scores[sender].correct} ❌${scores[sender].wrong}\n_© Courier Well_`
         }, { quoted: msg });
       } else {
         await sock.sendMessage(jid, {
-          text: isCorrect
-            ? `✅ *Sahi!*\nAnswer: ${LABELS[q.ans]}. ${q.options[q.ans]}\n\nScore: ✅${scores[sender].correct} | ❌${scores[sender].wrong}\n_© Courier Well_`
-            : `❌ *Galat!*\nSahi: ${LABELS[q.ans]}. ${q.options[q.ans]}\n\nScore: ✅${scores[sender].correct} | ❌${scores[sender].wrong}\n_© Courier Well_`
+          text: ok
+            ? `✅ Sahi! Answer: ${LABELS[q.ans]}. ${q.options[q.ans]}\nScore: ✅${scores[sender].correct} ❌${scores[sender].wrong}\n_© Courier Well_`
+            : `❌ Galat! Sahi: ${LABELS[q.ans]}. ${q.options[q.ans]}\nScore: ✅${scores[sender].correct} ❌${scores[sender].wrong}\n_© Courier Well_`
         }, { quoted: msg });
       }
-
-      // Auto next
       setTimeout(() => sendQuiz(sock, jid, null), AUTO_DELAY);
       return;
     }
 
-    // ─ start
+    // start
     if (activeSessions[jid]) {
-      await sock.sendMessage(jid, {
-        text: '⚠️ Quiz chal raha hai!\n.quiz ans A/B/C/D bhejo ya .quiz stop karo.'
-      }, { quoted: msg });
-      return;
+      return sock.sendMessage(jid,{
+        text:'⚠️ Quiz chal raha hai!\n.quiz ans A/B/C/D bhejo ya .quiz stop karo.'
+      },{quoted:msg});
     }
     await sendQuiz(sock, jid, msg);
   }

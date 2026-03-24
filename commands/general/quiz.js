@@ -1,12 +1,11 @@
 /**
- * 🧠 QUIZ COMMAND — Dynamic Image Card
- * .quiz        → image card with question
- * .quiz ans A  → answer submit
+ * 🧠 QUIZ COMMAND — Image Card + Poll Options + Auto Next
+ * .quiz        → start quiz
  * .quiz score  → apna score
  * .quiz top    → leaderboard
- * .quiz stop   → quiz band karo
+ * .quiz stop   → band karo
  *
- * Made by Ruhvaan ❤️
+ * © Courier Well
  */
 
 const fs   = require('fs');
@@ -15,10 +14,16 @@ const path = require('path');
 const DATA_FILE  = path.join(__dirname, '../../marks_quiz.json');
 const SCORE_FILE = path.join(__dirname, '../../quiz_scores.json');
 
-// Active quiz sessions per chat
+// Active sessions: { jid: { q, timer, pollMsgId } }
 const activeSessions = {};
+// Track who answered: { jid: Set(senderIds) }
+const answeredMap = {};
 
-// ── Helpers ──────────────────────────────────────────────────────────────
+const AUTO_DELAY    = 8000;  // 8s baad next question auto
+const TIMEOUT_SEC   = 30;
+const TIMEOUT_MS    = TIMEOUT_SEC * 1000;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function loadQuestions() {
   if (!fs.existsSync(DATA_FILE)) return [];
   try {
@@ -41,7 +46,7 @@ function randItem(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-// ── Word-wrap helper for canvas ───────────────────────────────────────────
+// ── Word-wrap helper ──────────────────────────────────────────────────────────
 function wrapText(ctx, text, maxWidth) {
   const words = text.split(' ');
   const lines = [];
@@ -59,176 +64,6 @@ function wrapText(ctx, text, maxWidth) {
   return lines;
 }
 
-// ── Generate Quiz Image ───────────────────────────────────────────────────
-async function generateQuizImage(q) {
-  let canvas, createCanvas;
-  try {
-    ({ createCanvas } = require('canvas'));
-  } catch {
-    return null; // canvas not available → fallback to text
-  }
-
-  const W = 800;
-  const LABELS = ['A', 'B', 'C', 'D'];
-  const COLORS = {
-    bg:         '#0D0D1A',
-    header:     '#1A1A2E',
-    accent:     '#6C63FF',
-    accent2:    '#FF6584',
-    text:       '#FFFFFF',
-    subtext:    '#A0AEC0',
-    optBg:      '#16213E',
-    optBorder:  '#6C63FF',
-    watermark:  '#6C63FF',
-  };
-
-  // ── Measure height dynamically ────────────────────────────────────────
-  const tmpC  = createCanvas(W, 100);
-  const tmpCtx = tmpC.getContext('2d');
-
-  tmpCtx.font = 'bold 22px Arial';
-  const qLines = wrapText(tmpCtx, q.question, W - 80);
-
-  tmpCtx.font = '20px Arial';
-  const optLines = q.options.map(o => wrapText(tmpCtx, o, W - 130));
-
-  const HEADER_H   = 70;
-  const YEAR_H     = 35;
-  const Q_TOP      = HEADER_H + YEAR_H + 20;
-  const Q_H        = qLines.length * 30 + 20;
-  const OPT_START  = Q_TOP + Q_H + 10;
-  const OPT_PAD    = 18;
-  const OPT_LINE_H = 28;
-
-  let optTotalH = 0;
-  for (const lines of optLines) {
-    optTotalH += OPT_PAD * 2 + lines.length * OPT_LINE_H + 10;
-  }
-
-  const FOOTER_H = 50;
-  const H = OPT_START + optTotalH + FOOTER_H + 20;
-
-  // ── Draw ─────────────────────────────────────────────────────────────
-  const cv  = createCanvas(W, H);
-  const ctx = cv.getContext('2d');
-
-  // Background
-  ctx.fillStyle = COLORS.bg;
-  ctx.fillRect(0, 0, W, H);
-
-  // Top gradient strip
-  const grad = ctx.createLinearGradient(0, 0, W, 0);
-  grad.addColorStop(0, '#6C63FF');
-  grad.addColorStop(1, '#FF6584');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, 6);
-
-  // Header box
-  ctx.fillStyle = COLORS.header;
-  ctx.fillRect(0, 6, W, HEADER_H);
-
-  // Header icon
-  ctx.font = '32px Arial';
-  ctx.fillText('🧠', 20, 50);
-
-  // Header title
-  ctx.font = 'bold 26px Arial';
-  ctx.fillStyle = COLORS.text;
-  ctx.fillText('MHT-CET QUIZ', 65, 48);
-
-  // Chapter tag (right side)
-  if (q.chapter) {
-    const tag = q.chapter.length > 28 ? q.chapter.slice(0, 25) + '...' : q.chapter;
-    ctx.font = '14px Arial';
-    ctx.fillStyle = COLORS.accent;
-    const tw = ctx.measureText(tag).width;
-    ctx.fillText(tag, W - tw - 20, 48);
-  }
-
-  // Year badge
-  if (q.year) {
-    ctx.font = '13px Arial';
-    ctx.fillStyle = COLORS.accent2;
-    ctx.fillText('📅 ' + q.year, 24, HEADER_H + 26);
-  }
-
-  // Question
-  ctx.font = 'bold 22px Arial';
-  ctx.fillStyle = COLORS.text;
-  let qY = Q_TOP;
-  for (const line of qLines) {
-    ctx.fillText(line, 24, qY);
-    qY += 30;
-  }
-
-  // Options
-  ctx.font = '20px Arial';
-  let optY = OPT_START;
-  const LABEL_COLORS = ['#6C63FF', '#FF6584', '#43D9A2', '#FFD166'];
-
-  for (let i = 0; i < q.options.length; i++) {
-    const lines = optLines[i];
-    const boxH  = OPT_PAD * 2 + lines.length * OPT_LINE_H;
-
-    // Option box
-    ctx.fillStyle = COLORS.optBg;
-    roundRect(ctx, 20, optY, W - 40, boxH, 10);
-    ctx.fill();
-
-    // Left accent bar
-    ctx.fillStyle = LABEL_COLORS[i];
-    roundRect(ctx, 20, optY, 6, boxH, 3);
-    ctx.fill();
-
-    // Label circle
-    ctx.beginPath();
-    ctx.arc(52, optY + boxH / 2, 16, 0, Math.PI * 2);
-    ctx.fillStyle = LABEL_COLORS[i];
-    ctx.fill();
-
-    ctx.font = 'bold 16px Arial';
-    ctx.fillStyle = '#000';
-    ctx.textAlign = 'center';
-    ctx.fillText(LABELS[i], 52, optY + boxH / 2 + 6);
-    ctx.textAlign = 'left';
-
-    // Option text
-    ctx.font = '19px Arial';
-    ctx.fillStyle = COLORS.text;
-    for (let l = 0; l < lines.length; l++) {
-      ctx.fillText(lines[l], 78, optY + OPT_PAD + (l + 1) * OPT_LINE_H - 6);
-    }
-
-    optY += boxH + 10;
-  }
-
-  // Footer divider
-  ctx.fillStyle = '#ffffff22';
-  ctx.fillRect(20, H - FOOTER_H, W - 40, 1);
-
-  // Reply hint
-  ctx.font = '15px Arial';
-  ctx.fillStyle = COLORS.subtext;
-  ctx.fillText('Reply: .quiz ans A/B/C/D  •  ⏰ 30 seconds', 24, H - FOOTER_H + 22);
-
-  // Made by Ruhvaan watermark
-  ctx.font = 'bold 16px Arial';
-  const wm = '✨ Made by Ruhvaan';
-  const wmW = ctx.measureText(wm).width;
-  ctx.fillStyle = COLORS.watermark;
-  ctx.fillText(wm, W - wmW - 20, H - FOOTER_H + 22);
-
-  // Bottom gradient strip
-  const grad2 = ctx.createLinearGradient(0, 0, W, 0);
-  grad2.addColorStop(0, '#6C63FF');
-  grad2.addColorStop(1, '#FF6584');
-  ctx.fillStyle = grad2;
-  ctx.fillRect(0, H - 5, W, 5);
-
-  return cv.toBuffer('image/png');
-}
-
-// Rounded rect helper
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -243,10 +78,139 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// ── Fallback text format ──────────────────────────────────────────────────
+// ── Generate Quiz Image (question only, no options) ───────────────────────────
+async function generateQuizImage(q) {
+  let createCanvas;
+  try { ({ createCanvas } = require('canvas')); }
+  catch { return null; }
+
+  const W      = 800;
+  const PAD    = 28;
+  const COLORS = {
+    bg:       '#0D0D1A',
+    header:   '#1A1A2E',
+    text:     '#FFFFFF',
+    subtext:  '#A0AEC0',
+    accent:   '#6C63FF',
+    accent2:  '#FF6584',
+    divider:  '#ffffff22',
+  };
+
+  // Measure question height
+  const tmp    = createCanvas(W, 100).getContext('2d');
+  tmp.font     = 'bold 23px Arial';
+  const qLines = wrapText(tmp, 'Q. ' + q.question, W - PAD * 2);
+
+  const HEADER_H = 72;
+  const YEAR_H   = 32;
+  const Q_H      = qLines.length * 32 + 20;
+  const FOOTER_H = 52;
+  const H        = HEADER_H + YEAR_H + 16 + Q_H + FOOTER_H + 10;
+
+  const cv  = createCanvas(W, H);
+  const ctx = cv.getContext('2d');
+
+  // ── Background
+  ctx.fillStyle = COLORS.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Top gradient bar
+  const g1 = ctx.createLinearGradient(0, 0, W, 0);
+  g1.addColorStop(0, '#6C63FF');
+  g1.addColorStop(1, '#FF6584');
+  ctx.fillStyle = g1;
+  ctx.fillRect(0, 0, W, 5);
+
+  // ── Header
+  ctx.fillStyle = COLORS.header;
+  ctx.fillRect(0, 5, W, HEADER_H);
+
+  ctx.font = '34px Arial';
+  ctx.fillText('🧠', PAD, 52);
+
+  ctx.font      = 'bold 28px Arial';
+  ctx.fillStyle = COLORS.text;
+  ctx.fillText('MHT-CET QUIZ', PAD + 46, 50);
+
+  // Chapter tag right
+  if (q.chapter) {
+    const tag = q.chapter.length > 26 ? q.chapter.slice(0, 23) + '…' : q.chapter;
+    ctx.font      = '14px Arial';
+    ctx.fillStyle = COLORS.accent;
+    const tw = ctx.measureText(tag).width;
+    ctx.fillText(tag, W - tw - PAD, 50);
+  }
+
+  // ── Year
+  if (q.year) {
+    ctx.font      = '14px Arial';
+    ctx.fillStyle = COLORS.accent2;
+    ctx.fillText('📅 ' + q.year, PAD, HEADER_H + 5 + 20);
+  }
+
+  // ── Question text
+  ctx.font      = 'bold 23px Arial';
+  ctx.fillStyle = COLORS.text;
+  let qY = HEADER_H + YEAR_H + 24;
+  for (const line of qLines) {
+    ctx.fillText(line, PAD, qY);
+    qY += 32;
+  }
+
+  // ── Divider
+  ctx.fillStyle = COLORS.divider;
+  ctx.fillRect(PAD, H - FOOTER_H - 2, W - PAD * 2, 1);
+
+  // ── Footer left: poll hint
+  ctx.font      = '15px Arial';
+  ctx.fillStyle = COLORS.subtext;
+  ctx.fillText('Vote karo poll mein  •  ⏰ ' + TIMEOUT_SEC + ' seconds', PAD, H - FOOTER_H + 22);
+
+  // ── Footer right: COURIER WELL branding
+  ctx.font      = 'bold 15px Arial';
+  const brand   = 'COURIER WELL';
+  const sub     = 'Education Platform';
+  const bW      = ctx.measureText(brand).width;
+
+  // Small logo circle
+  ctx.beginPath();
+  ctx.arc(W - PAD - bW - 30, H - FOOTER_H + 16, 11, 0, Math.PI * 2);
+  const lg = ctx.createLinearGradient(
+    W - PAD - bW - 41, H - FOOTER_H + 5,
+    W - PAD - bW - 19, H - FOOTER_H + 27
+  );
+  lg.addColorStop(0, '#6C63FF');
+  lg.addColorStop(1, '#FF6584');
+  ctx.fillStyle = lg;
+  ctx.fill();
+
+  ctx.font      = 'bold 11px Arial';
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.fillText('CW', W - PAD - bW - 30, H - FOOTER_H + 20);
+  ctx.textAlign = 'left';
+
+  ctx.font      = 'bold 15px Arial';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillText(brand, W - PAD - bW, H - FOOTER_H + 14);
+
+  ctx.font      = '11px Arial';
+  ctx.fillStyle = COLORS.accent;
+  ctx.fillText(sub, W - PAD - bW, H - FOOTER_H + 28);
+
+  // ── Bottom gradient bar
+  const g2 = ctx.createLinearGradient(0, 0, W, 0);
+  g2.addColorStop(0, '#6C63FF');
+  g2.addColorStop(1, '#FF6584');
+  ctx.fillStyle = g2;
+  ctx.fillRect(0, H - 5, W, 5);
+
+  return cv.toBuffer('image/png');
+}
+
+// ── Text fallback ─────────────────────────────────────────────────────────────
 function formatText(q) {
-  const labels = ['A', 'B', 'C', 'D'];
-  const opts = q.options.map((o, i) => `  ${labels[i]}. ${o}`).join('\n');
+  const L = ['A', 'B', 'C', 'D'];
   return (
     `╔══════════════════════╗\n` +
     `║  🧠 *MHT-CET QUIZ*   ║\n` +
@@ -254,31 +218,97 @@ function formatText(q) {
     `📚 *${q.chapter || 'Mathematics'}*\n` +
     `${q.year ? `📅 ${q.year}` : ''}\n\n` +
     `*Q. ${q.question}*\n\n` +
-    `${opts}\n\n` +
-    `Reply: *.quiz ans A/B/C/D*\n` +
-    `⏰ 30 seconds!\n\n` +
-    `_✨ Made by Ruhvaan_`
+    q.options.map((o, i) => `  ${L[i]}. ${o}`).join('\n') + '\n\n' +
+    `⏰ ${TIMEOUT_SEC} seconds\n\n` +
+    `_© Courier Well — Education Platform_`
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────
+// ── Send one quiz round ───────────────────────────────────────────────────────
+async function sendQuiz(sock, jid, quotedMsg) {
+  const questions = loadQuestions();
+  if (!questions.length) {
+    await sock.sendMessage(jid, { text: '🚫 Quiz data nahi mila! Owner se *.scrape* chalwao.' });
+    return;
+  }
+
+  const q      = randItem(questions);
+  const LABELS = ['A', 'B', 'C', 'D'];
+
+  // 1️⃣ Send image card
+  let imgBuf = null;
+  try { imgBuf = await generateQuizImage(q); } catch {}
+
+  if (imgBuf) {
+    await sock.sendMessage(jid, {
+      image:    imgBuf,
+      mimetype: 'image/png',
+      caption:  `📚 *${q.chapter || 'Mathematics'}*${q.year ? `  |  📅 ${q.year}` : ''}\n_© Courier Well — Education Platform_`
+    }, quotedMsg ? { quoted: quotedMsg } : {});
+  } else {
+    await sock.sendMessage(jid, { text: formatText(q) },
+      quotedMsg ? { quoted: quotedMsg } : {});
+  }
+
+  // 2️⃣ Send WhatsApp Poll for options
+  let pollMsg;
+  try {
+    pollMsg = await sock.sendMessage(jid, {
+      poll: {
+        name:          `Q. ${q.question.slice(0, 100)}${q.question.length > 100 ? '…' : ''}`,
+        values:        q.options.map((o, i) => `${LABELS[i]}. ${o}`),
+        selectableCount: 1,
+      }
+    });
+  } catch (e) {
+    // Poll failed — send text options
+    await sock.sendMessage(jid, {
+      text: q.options.map((o, i) => `${LABELS[i]}. ${o}`).join('\n') +
+        '\n\nReply: *.quiz ans A/B/C/D*'
+    });
+  }
+
+  // 3️⃣ Auto timeout
+  const timer = setTimeout(async () => {
+    if (!activeSessions[jid]) return;
+    const session = activeSessions[jid];
+    delete activeSessions[jid];
+    delete answeredMap[jid];
+
+    await sock.sendMessage(jid, {
+      text:
+        `⏰ *Time Up!*\n\n` +
+        `Sahi Answer: *${LABELS[q.ans]}. ${q.options[q.ans]}*\n\n` +
+        `${q.explanation ? `💡 *Solution:*\n${q.explanation.slice(0, 300)}\n\n` : ''}` +
+        `_© Courier Well — Education Platform_`
+    });
+
+    // Auto next question after 8s
+    setTimeout(() => sendQuiz(sock, jid, null), AUTO_DELAY);
+  }, TIMEOUT_MS);
+
+  answeredMap[jid]    = new Set();
+  activeSessions[jid] = { q, timer, pollMsgId: pollMsg?.key?.id };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 module.exports = {
-  name: 'quiz',
-  aliases: ['q', 'mcq'],
-  description: 'MHT-CET / JEE MCQ Quiz with Image Cards',
+  name:     'quiz',
+  aliases:  ['q', 'mcq'],
+  description: 'MHT-CET Quiz — Image Card + Poll + Auto Next',
   category: 'general',
-  usage: '.quiz | .quiz ans A | .quiz score | .quiz top | .quiz stop',
+  usage:    '.quiz | .quiz ans A | .quiz score | .quiz top | .quiz stop',
 
   async execute(sock, msg, args) {
     const jid    = msg.key.remoteJid;
     const sender = msg.key.participant || msg.key.remoteJid;
     const sub    = (args[0] || '').toLowerCase();
 
-    // ── .quiz score ──────────────────────────────────────────────────────
+    // ── .quiz score ───────────────────────────────────────────────────────────
     if (sub === 'score') {
-      const scores  = loadScores();
-      const mine    = scores[sender] || { correct: 0, wrong: 0, total: 0 };
-      const acc     = mine.total ? Math.round(mine.correct / mine.total * 100) : 0;
+      const scores = loadScores();
+      const mine   = scores[sender] || { correct: 0, wrong: 0, total: 0 };
+      const acc    = mine.total ? Math.round(mine.correct / mine.total * 100) : 0;
       await sock.sendMessage(jid, {
         text:
           `📊 *Your Quiz Score*\n\n` +
@@ -286,19 +316,19 @@ module.exports = {
           `❌ Wrong   : ${mine.wrong}\n` +
           `📝 Total   : ${mine.total}\n` +
           `🎯 Accuracy: ${acc}%\n\n` +
-          `_✨ Made by Ruhvaan_`
+          `_© Courier Well — Education Platform_`
       }, { quoted: msg });
       return;
     }
 
-    // ── .quiz top ────────────────────────────────────────────────────────
+    // ── .quiz top ─────────────────────────────────────────────────────────────
     if (sub === 'top') {
       const scores = loadScores();
       const sorted = Object.entries(scores)
         .sort((a, b) => b[1].correct - a[1].correct)
         .slice(0, 10);
       if (!sorted.length) {
-        await sock.sendMessage(jid, { text: '🚫 Abhi koi score nahi hai!' }, { quoted: msg });
+        await sock.sendMessage(jid, { text: '🚫 Abhi koi score nahi!' }, { quoted: msg });
         return;
       }
       const medals = ['🥇', '🥈', '🥉'];
@@ -306,72 +336,87 @@ module.exports = {
         `${medals[i] || `${i + 1}.`} @${id.split('@')[0]} — ✅ ${s.correct} correct`
       ).join('\n');
       await sock.sendMessage(jid, {
-        text: `🏆 *Quiz Leaderboard*\n\n${board}\n\n_✨ Made by Ruhvaan_`,
+        text: `🏆 *Quiz Leaderboard*\n\n${board}\n\n_© Courier Well — Education Platform_`,
         mentions: sorted.map(([id]) => id)
       }, { quoted: msg });
       return;
     }
 
-    // ── .quiz stop ───────────────────────────────────────────────────────
+    // ── .quiz stop ────────────────────────────────────────────────────────────
     if (sub === 'stop') {
       if (activeSessions[jid]) {
         clearTimeout(activeSessions[jid].timer);
         delete activeSessions[jid];
-        await sock.sendMessage(jid, { text: '⛔ Quiz band kar diya!' }, { quoted: msg });
+        delete answeredMap[jid];
+        await sock.sendMessage(jid, {
+          text: '⛔ Quiz band kar diya!\n\n_© Courier Well — Education Platform_'
+        }, { quoted: msg });
       } else {
         await sock.sendMessage(jid, { text: '❓ Koi active quiz nahi hai.' }, { quoted: msg });
       }
       return;
     }
 
-    // ── .quiz ans X ──────────────────────────────────────────────────────
+    // ── .quiz ans A/B/C/D ─────────────────────────────────────────────────────
     if (sub === 'ans') {
       const session = activeSessions[jid];
       if (!session) {
-        await sock.sendMessage(jid, {
-          text: '❓ Koi active quiz nahi!\n*.quiz* se shuru karo.'
-        }, { quoted: msg });
+        await sock.sendMessage(jid,
+          { text: '❓ Koi active quiz nahi!\n*.quiz* se shuru karo.' },
+          { quoted: msg });
+        return;
+      }
+
+      // Prevent double answer
+      if (answeredMap[jid]?.has(sender)) {
+        await sock.sendMessage(jid,
+          { text: '⚠️ Tumne pehle hi jawab de diya!' },
+          { quoted: msg });
         return;
       }
 
       const labelMap = { a: 0, b: 1, c: 2, d: 3, '1': 0, '2': 1, '3': 2, '4': 3 };
-      const input    = (args[1] || '').toLowerCase();
-      const chosen   = labelMap[input];
+      const chosen   = labelMap[(args[1] || '').toLowerCase()];
 
       if (chosen === undefined) {
-        await sock.sendMessage(jid, {
-          text: '❗ A, B, C ya D mein se ek bhejo!\nExample: *.quiz ans B*'
-        }, { quoted: msg });
+        await sock.sendMessage(jid,
+          { text: '⚠️ A, B, C ya D bhejo!\nExample: *.quiz ans B*' },
+          { quoted: msg });
         return;
       }
 
+      answeredMap[jid].add(sender);
       clearTimeout(session.timer);
+      delete activeSessions[jid];
+      delete answeredMap[jid];
+
       const q      = session.q;
+      const LABELS = ['A', 'B', 'C', 'D'];
       const scores = loadScores();
       if (!scores[sender]) scores[sender] = { correct: 0, wrong: 0, total: 0 };
       scores[sender].total++;
 
-      const LABELS       = ['A', 'B', 'C', 'D'];
-      const correctLabel = LABELS[q.ans];
-      const chosenLabel  = LABELS[chosen];
-      const isCorrect    = chosen === q.ans;
-
+      const isCorrect = chosen === q.ans;
       if (isCorrect) scores[sender].correct++;
       else           scores[sender].wrong++;
       saveScores(scores);
-      delete activeSessions[jid];
 
-      const exp = q.explanation ? `💡 *Solution:*\n${q.explanation.slice(0, 350)}\n\n` : '';
+      const exp = q.explanation
+        ? `💡 *Solution:*\n${q.explanation.slice(0, 350)}\n\n`
+        : '';
 
       await sock.sendMessage(jid, {
         text: isCorrect
-          ? `✅ *Sahi Jawab!* 🎉\n\nAnswer: *${correctLabel}. ${q.options[q.ans]}*\n\n${exp}Score: ✅ ${scores[sender].correct} | ❌ ${scores[sender].wrong}\n\n_✨ Made by Ruhvaan_`
-          : `❌ *Galat Jawab!*\n\nTumne: *${chosenLabel}. ${q.options[chosen]}*\nSahi: *${correctLabel}. ${q.options[q.ans]}*\n\n${exp}Score: ✅ ${scores[sender].correct} | ❌ ${scores[sender].wrong}\n\n_✨ Made by Ruhvaan_`
+          ? `✅ *Sahi Jawab!* 🎉\n\nAnswer: *${LABELS[q.ans]}. ${q.options[q.ans]}*\n\n${exp}Score: ✅ ${scores[sender].correct} | ❌ ${scores[sender].wrong}\n\n_© Courier Well — Education Platform_`
+          : `❌ *Galat Jawab!*\n\nTumne: *${LABELS[chosen]}. ${q.options[chosen]}*\nSahi: *${LABELS[q.ans]}. ${q.options[q.ans]}*\n\n${exp}Score: ✅ ${scores[sender].correct} | ❌ ${scores[sender].wrong}\n\n_© Courier Well — Education Platform_`
       }, { quoted: msg });
+
+      // Auto next after 8s
+      setTimeout(() => sendQuiz(sock, jid, null), AUTO_DELAY);
       return;
     }
 
-    // ── .quiz (new question) ─────────────────────────────────────────────
+    // ── .quiz (start) ─────────────────────────────────────────────────────────
     if (activeSessions[jid]) {
       await sock.sendMessage(jid, {
         text: '⚠️ Pehle wala quiz chal raha hai!\n*.quiz ans A/B/C/D* se jawab do ya *.quiz stop* karo.'
@@ -379,50 +424,6 @@ module.exports = {
       return;
     }
 
-    const questions = loadQuestions();
-    if (!questions.length) {
-      await sock.sendMessage(jid, {
-        text: '🚫 Quiz data nahi mila!\nOwner se *.scrape* chalwao.'
-      }, { quoted: msg });
-      return;
-    }
-
-    const q = randItem(questions);
-
-    // ── Try canvas image first, fallback to text ──────────────────────
-    let sent;
-    try {
-      const imgBuf = await generateQuizImage(q);
-      if (imgBuf) {
-        sent = await sock.sendMessage(jid, {
-          image:    imgBuf,
-          mimetype: 'image/png',
-          caption:  `_✨ Made by Ruhvaan_`
-        }, { quoted: msg });
-      } else {
-        throw new Error('canvas unavailable');
-      }
-    } catch {
-      sent = await sock.sendMessage(jid, {
-        text: formatText(q)
-      }, { quoted: msg });
-    }
-
-    // 30 second auto timeout
-    const LABELS = ['A', 'B', 'C', 'D'];
-    const timer  = setTimeout(async () => {
-      if (!activeSessions[jid]) return;
-      delete activeSessions[jid];
-      await sock.sendMessage(jid, {
-        text:
-          `⏰ *Time Up!*\n\n` +
-          `Sahi Answer tha: *${LABELS[q.ans]}. ${q.options[q.ans]}*\n\n` +
-          `${q.explanation ? `💡 *Solution:*\n${q.explanation.slice(0, 250)}\n\n` : ''}` +
-          `New question ke liye *.quiz* bhejo\n\n` +
-          `_✨ Made by Ruhvaan_`
-      });
-    }, 30000);
-
-    activeSessions[jid] = { q, timer, msgId: sent?.key?.id };
+    await sendQuiz(sock, jid, msg);
   }
 };

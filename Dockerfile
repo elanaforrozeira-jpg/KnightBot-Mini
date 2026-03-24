@@ -1,7 +1,8 @@
 FROM node:20-bullseye-slim
 
-# Install all native build deps for canvas + fonts
+# Install git + native build deps for canvas + fonts
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
     build-essential \
     python3 \
     python3-pip \
@@ -23,11 +24,11 @@ WORKDIR /app
 
 COPY package*.json ./
 
-# Install all deps (canvas is optional, won't fail build if it errors)
-RUN npm install --legacy-peer-deps --ignore-optional || npm install --legacy-peer-deps
+# Install all deps
+RUN npm install --legacy-peer-deps
 
-# Try to build canvas separately (ok if fails, fallback exists in code)
-RUN npm rebuild canvas --update-binary || echo "canvas rebuild failed, using text fallback"
+# Try canvas rebuild (ok if fails, code has text fallback)
+RUN npm rebuild canvas --update-binary || echo "canvas rebuild skipped"
 
 COPY . .
 

@@ -5,62 +5,78 @@
 
 const activeQuizzes = new Map();
 const quizScores   = new Map();
-const pollToQuiz   = new Map(); // pollMsgId -> { jid, questionIndex }
+const pollToQuiz   = new Map();
 
 // ─────────────────────────────────────────
-//  SHARED QUESTION BANK (PCM JEE Level)
+//  QUESTION BANK — JEE Mains + Advanced Level
 // ─────────────────────────────────────────
 const jeeQuestions = [
+
   // ── PHYSICS ──
-  { q: 'A body is thrown vertically upward with velocity u. The ratio of time of ascent to time of descent is:', options: ['1:1', '1:2', '2:1', 'u:g'], ans: 0, category: 'Physics', subject: 'P' },
-  { q: 'The dimensional formula of angular momentum is:', options: ['[ML²T⁻²]', '[ML²T⁻¹]', '[MLT⁻¹]', '[M²L²T⁻¹]'], ans: 1, category: 'Physics', subject: 'P' },
-  { q: 'A particle moves in a circle of radius r. In half revolution it travels a distance of:', options: ['πr', '2r', '2πr', 'r'], ans: 0, category: 'Physics', subject: 'P' },
-  { q: 'Which of the following has the highest penetrating power?', options: ['Alpha rays', 'Beta rays', 'Gamma rays', 'X-rays'], ans: 2, category: 'Physics', subject: 'P' },
-  { q: 'The work done in moving a charge of 2 C across two points having a potential difference of 12 V is:', options: ['6 J', '10 J', '24 J', '14 J'], ans: 2, category: 'Physics', subject: 'P' },
-  { q: 'The SI unit of magnetic flux is:', options: ['Tesla', 'Weber', 'Gauss', 'Henry'], ans: 1, category: 'Physics', subject: 'P' },
-  { q: 'A concave lens of focal length 20 cm forms an image at 15 cm from the lens. The object distance is:', options: ['60 cm', '120 cm', '30 cm', '40 cm'], ans: 0, category: 'Physics', subject: 'P' },
-  { q: 'In photoelectric effect, stopping potential depends on:', options: ['Intensity of light', 'Frequency of light', 'Both intensity and frequency', 'Neither'], ans: 1, category: 'Physics', subject: 'P' },
-  { q: 'The de Broglie wavelength of a particle is inversely proportional to its:', options: ['Mass', 'Speed', 'Momentum', 'Energy'], ans: 2, category: 'Physics', subject: 'P' },
-  { q: 'Which law states that EMF induced is proportional to the rate of change of magnetic flux?', options: ["Ampere's law", "Gauss's law", "Faraday's law", "Lenz's law"], ans: 2, category: 'Physics', subject: 'P' },
-  { q: 'Two resistors of 4Ω and 6Ω are connected in parallel. The equivalent resistance is:', options: ['10 Ω', '2.4 Ω', '5 Ω', '1.2 Ω'], ans: 1, category: 'Physics', subject: 'P' },
-  { q: 'The time period of a simple pendulum is doubled when its length is:', options: ['Doubled', 'Halved', 'Quadrupled', 'Made 8 times'], ans: 2, category: 'Physics', subject: 'P' },
-  { q: 'The escape velocity from the Earth surface is approximately:', options: ['7.9 km/s', '11.2 km/s', '3.0 km/s', '9.8 km/s'], ans: 1, category: 'Physics', subject: 'P' },
-  { q: "In Young's double slit experiment, fringe width is β. If slit separation is doubled, new fringe width is:", options: ['β/2', '2β', 'β', '4β'], ans: 0, category: 'Physics', subject: 'P' },
-  { q: 'The binding energy per nucleon is maximum for:', options: ['Uranium-238', 'Helium-4', 'Iron-56', 'Carbon-12'], ans: 2, category: 'Physics', subject: 'P' },
+  { q: 'A body thrown vertically up with velocity u. Ratio of time of ascent to descent is:', options: ['1:1', '1:2', '2:1', 'u:g'], ans: 0, category: 'Kinematics', subject: 'P' },
+  { q: 'Dimensional formula of angular momentum is:', options: ['[ML²T⁻²]', '[ML²T⁻¹]', '[MLT⁻¹]', '[M²L²T⁻¹]'], ans: 1, category: 'Dimensions', subject: 'P' },
+  { q: 'Which has the highest penetrating power?', options: ['Alpha', 'Beta', 'Gamma', 'X-rays'], ans: 2, category: 'Modern Physics', subject: 'P' },
+  { q: 'Work done moving 2C across 12V potential difference:', options: ['6 J', '10 J', '24 J', '14 J'], ans: 2, category: 'Electrostatics', subject: 'P' },
+  { q: 'SI unit of magnetic flux is:', options: ['Tesla', 'Weber', 'Gauss', 'Henry'], ans: 1, category: 'Magnetism', subject: 'P' },
+  { q: 'In photoelectric effect, stopping potential depends on:', options: ['Intensity', 'Frequency', 'Both', 'Neither'], ans: 1, category: 'Modern Physics', subject: 'P' },
+  { q: 'de Broglie wavelength is inversely proportional to:', options: ['Mass', 'Speed', 'Momentum', 'Energy'], ans: 2, category: 'Modern Physics', subject: 'P' },
+  { q: 'Two resistors 4Ω and 6Ω in parallel. Equivalent resistance:', options: ['10 Ω', '2.4 Ω', '5 Ω', '1.2 Ω'], ans: 1, category: 'Current Electricity', subject: 'P' },
+  { q: 'Escape velocity from Earth surface is approximately:', options: ['7.9 km/s', '11.2 km/s', '3.0 km/s', '9.8 km/s'], ans: 1, category: 'Gravitation', subject: 'P' },
+  { q: 'Binding energy per nucleon is maximum for:', options: ['U-238', 'He-4', 'Fe-56', 'C-12'], ans: 2, category: 'Nuclear Physics', subject: 'P' },
+  { q: 'A ball is dropped from height h. Time to reach ground is:', options: ['sqrt(h/g)', 'sqrt(2h/g)', '2sqrt(h/g)', 'h/g'], ans: 1, category: 'Kinematics', subject: 'P' },
+  { q: 'If temperature of black body doubles, radiated power becomes:', options: ['2 times', '4 times', '8 times', '16 times'], ans: 3, category: 'Thermal Physics', subject: 'P' },
+  { q: 'A wire of resistance R is stretched to double its length. New resistance:', options: ['R/2', 'R', '2R', '4R'], ans: 3, category: 'Current Electricity', subject: 'P' },
+  { q: 'Which quantity is conserved in elastic collision?', options: ['KE only', 'Momentum only', 'Both KE and momentum', 'Neither'], ans: 2, category: 'Laws of Motion', subject: 'P' },
+  { q: 'In Young\'s double slit, fringe width beta. Slit sep doubled, new fringe width:', options: ['beta/2', '2*beta', 'beta', '4*beta'], ans: 0, category: 'Wave Optics', subject: 'P' },
+  { q: 'A capacitor of capacitance C is charged to V. Energy stored is:', options: ['CV', 'CV²', 'CV²/2', '2CV²'], ans: 2, category: 'Electrostatics', subject: 'P' },
+  { q: 'Which gate gives output 1 only when both inputs are 0?', options: ['AND', 'OR', 'NOR', 'NAND'], ans: 2, category: 'Electronics', subject: 'P' },
+  { q: 'In SHM, acceleration is maximum at:', options: ['Mean position', 'Extreme position', 'Any point', 'Half amplitude'], ans: 1, category: 'Oscillations', subject: 'P' },
+  { q: 'Moment of inertia of solid sphere about diameter:', options: ['MR²', '2MR²/3', '2MR²/5', 'MR²/2'], ans: 2, category: 'Rotational Motion', subject: 'P' },
+  { q: 'Threshold frequency in photoelectric effect depends on:', options: ['Intensity', 'Metal surface', 'Both', 'Temperature'], ans: 1, category: 'Modern Physics', subject: 'P' },
 
   // ── CHEMISTRY ──
-  { q: 'Which of the following has the highest ionization energy?', options: ['Na', 'Mg', 'Al', 'Si'], ans: 1, category: 'Chemistry', subject: 'C' },
-  { q: 'The hybridization of carbon in diamond is:', options: ['sp', 'sp²', 'sp³', 'sp³d'], ans: 2, category: 'Chemistry', subject: 'C' },
-  { q: 'Which gas is produced when sodium reacts with water?', options: ['Oxygen', 'Nitrogen', 'Hydrogen', 'CO₂'], ans: 2, category: 'Chemistry', subject: 'C' },
-  { q: 'The bond angle in water molecule is approximately:', options: ['109.5°', '120°', '104.5°', '180°'], ans: 2, category: 'Chemistry', subject: 'C' },
-  { q: 'Which of the following is a Lewis acid?', options: ['NH₃', 'H₂O', 'BF₃', 'F⁻'], ans: 2, category: 'Chemistry', subject: 'C' },
-  { q: 'The IUPAC name of CH₃–CH=CH₂ is:', options: ['Propene', 'Propane', 'Propyne', 'Propadiene'], ans: 0, category: 'Chemistry', subject: 'C' },
-  { q: 'Which quantum number determines the shape of an orbital?', options: ['Principal (n)', 'Azimuthal (l)', 'Magnetic (m)', 'Spin (s)'], ans: 1, category: 'Chemistry', subject: 'C' },
-  { q: 'The oxidation state of Cr in K₂Cr₂O₇ is:', options: ['+3', '+6', '+4', '+7'], ans: 1, category: 'Chemistry', subject: 'C' },
-  { q: 'SN2 reaction is favored by:', options: ['Tertiary alkyl halides', 'Secondary alkyl halides', 'Primary alkyl halides', 'All equally'], ans: 2, category: 'Chemistry', subject: 'C' },
-  { q: 'Which of the following compounds shows geometrical isomerism?', options: ['CH₂=CH₂', 'CH₃–CH=CH–CH₃', 'CH₂=C(CH₃)₂', 'CH₄'], ans: 1, category: 'Chemistry', subject: 'C' },
-  { q: 'The enthalpy of formation of an element in its standard state is:', options: ['Positive', 'Negative', 'Zero', 'Depends on element'], ans: 2, category: 'Chemistry', subject: 'C' },
-  { q: 'Nylon-6,6 is formed by condensation polymerization of:', options: ['Hexamethylenediamine and adipic acid', 'Caprolactam', 'Ethylene glycol and terephthalic acid', 'Styrene'], ans: 0, category: 'Chemistry', subject: 'C' },
-  { q: 'Which of the following is most acidic?', options: ['CH₄', 'C₂H₂', 'C₂H₄', 'C₂H₆'], ans: 1, category: 'Chemistry', subject: 'C' },
-  { q: 'The electrode potential of standard hydrogen electrode is:', options: ['+1.0 V', '-1.0 V', '0 V', '+0.5 V'], ans: 2, category: 'Chemistry', subject: 'C' },
-  { q: 'Beckmann rearrangement converts:', options: ['Ketone to amine', 'Ketoxime to amide', 'Aldehyde to acid', 'Amine to nitro compound'], ans: 1, category: 'Chemistry', subject: 'C' },
+  { q: 'Which has highest ionization energy?', options: ['Na', 'Mg', 'Al', 'Si'], ans: 1, category: 'Periodic Table', subject: 'C' },
+  { q: 'Hybridization of carbon in diamond:', options: ['sp', 'sp²', 'sp³', 'sp³d'], ans: 2, category: 'Chemical Bonding', subject: 'C' },
+  { q: 'Gas produced when sodium reacts with water:', options: ['Oxygen', 'Nitrogen', 'Hydrogen', 'CO₂'], ans: 2, category: 's-Block', subject: 'C' },
+  { q: 'Bond angle in water molecule is approximately:', options: ['109.5°', '120°', '104.5°', '180°'], ans: 2, category: 'Chemical Bonding', subject: 'C' },
+  { q: 'Which is a Lewis acid?', options: ['NH₃', 'H₂O', 'BF₃', 'F⁻'], ans: 2, category: 'Equilibrium', subject: 'C' },
+  { q: 'Oxidation state of Cr in K₂Cr₂O₇ is:', options: ['+3', '+6', '+4', '+7'], ans: 1, category: 'd-Block', subject: 'C' },
+  { q: 'SN2 reaction is favored by:', options: ['Tertiary alkyl halides', 'Secondary', 'Primary alkyl halides', 'All equally'], ans: 2, category: 'Organic - Halides', subject: 'C' },
+  { q: 'Enthalpy of formation of element in standard state is:', options: ['Positive', 'Negative', 'Zero', 'Depends'], ans: 2, category: 'Thermodynamics', subject: 'C' },
+  { q: 'Which is most acidic?', options: ['CH₄', 'C₂H₂', 'C₂H₄', 'C₂H₆'], ans: 1, category: 'Organic - Basics', subject: 'C' },
+  { q: 'Beckmann rearrangement converts:', options: ['Ketone to amine', 'Ketoxime to amide', 'Aldehyde to acid', 'Amine to nitro'], ans: 1, category: 'Organic - Named Rxns', subject: 'C' },
+  { q: 'Number of sigma bonds in ethyne (HC≡CH):', options: ['1', '2', '3', '4'], ans: 2, category: 'Chemical Bonding', subject: 'C' },
+  { q: 'Which gas has highest critical temperature?', options: ['H₂', 'N₂', 'CO₂', 'O₂'], ans: 2, category: 'States of Matter', subject: 'C' },
+  { q: 'Rate of reaction doubles when temperature rises 10°C. This is explained by:', options: ['Le Chatelier', 'Arrhenius equation', 'Hess law', 'Raoult law'], ans: 1, category: 'Chemical Kinetics', subject: 'C' },
+  { q: 'Which is not a colligative property?', options: ['Osmotic pressure', 'Optical rotation', 'Boiling point elevation', 'Vapour pressure lowering'], ans: 1, category: 'Solutions', subject: 'C' },
+  { q: 'Compound with formula XeF₄ has geometry:', options: ['Tetrahedral', 'Square planar', 'See-saw', 'Square pyramidal'], ans: 1, category: 'Chemical Bonding', subject: 'C' },
+  { q: 'In electrolysis, Faraday\'s second law relates to:', options: ['Time', 'Equivalent weights', 'Temperature', 'Voltage'], ans: 1, category: 'Electrochemistry', subject: 'C' },
+  { q: 'Which is an example of lyophilic colloid?', options: ['Gold sol', 'Starch sol', 'As₂S₃ sol', 'Fe(OH)₃ sol'], ans: 1, category: 'Surface Chemistry', subject: 'C' },
+  { q: 'Nylon-6,6 is formed from:', options: ['Hexamethylenediamine + adipic acid', 'Caprolactam', 'Ethylene glycol + terephthalic acid', 'Styrene'], ans: 0, category: 'Polymers', subject: 'C' },
+  { q: 'Electrode potential of SHE is:', options: ['+1.0 V', '-1.0 V', '0 V', '+0.5 V'], ans: 2, category: 'Electrochemistry', subject: 'C' },
+  { q: 'Strongest reducing agent among halogens:', options: ['F⁻', 'Cl⁻', 'Br⁻', 'I⁻'], ans: 3, category: 'p-Block', subject: 'C' },
 
   // ── MATHEMATICS ──
-  { q: 'If f(x) = x² – 3x + 2, then f(0) + f(1) + f(2) = ?', options: ['0', '2', '3', '4'], ans: 1, category: 'Mathematics', subject: 'M' },
-  { q: 'The derivative of sin(x²) with respect to x is:', options: ['cos(x²)', '2x·cos(x²)', 'cos(2x)', '2cos(x²)'], ans: 1, category: 'Mathematics', subject: 'M' },
-  { q: '∫(1/x)dx = ?', options: ['x + C', 'ln|x| + C', '1/x² + C', '-1/x + C'], ans: 1, category: 'Mathematics', subject: 'M' },
-  { q: 'The sum of roots of quadratic equation ax² + bx + c = 0 is:', options: ['b/a', '-b/a', 'c/a', '-c/a'], ans: 1, category: 'Mathematics', subject: 'M' },
-  { q: 'If |z| = 2 and arg(z) = π/3, then z = ?', options: ['1 + i√3', '√3 + i', '1 + i', '2 + 2i'], ans: 0, category: 'Mathematics', subject: 'M' },
-  { q: 'The number of ways to arrange 5 letters of the word "MATHS" is:', options: ['60', '120', '24', '720'], ans: 1, category: 'Mathematics', subject: 'M' },
-  { q: 'lim(x→0) [sin(x)/x] = ?', options: ['0', 'x', '1', '∞'], ans: 2, category: 'Mathematics', subject: 'M' },
-  { q: 'The eccentricity of a circle is:', options: ['0', '1', '<1', '>1'], ans: 0, category: 'Mathematics', subject: 'M' },
-  { q: 'If A is a 3×3 matrix with det(A) = 5, then det(2A) = ?', options: ['10', '20', '40', '25'], ans: 2, category: 'Mathematics', subject: 'M' },
-  { q: 'The angle between vectors A = i+j and B = i–j is:', options: ['0°', '45°', '90°', '180°'], ans: 2, category: 'Mathematics', subject: 'M' },
-  { q: 'The general solution of dy/dx = y is:', options: ['y = Ce^x', 'y = Cx', 'y = C·ln(x)', 'y = Ce^(-x)'], ans: 0, category: 'Mathematics', subject: 'M' },
-  { q: 'In a GP, if first term is 2 and common ratio is 3, the 5th term is:', options: ['162', '54', '243', '486'], ans: 0, category: 'Mathematics', subject: 'M' },
-  { q: '⁴⁵C₁ + ⁴⁵C₂ + ... + ⁴⁵C₄₅ = ?', options: ['2⁴⁵', '2⁴⁴', '2⁴⁵ – 1', '2⁴⁴ – 1'], ans: 2, category: 'Mathematics', subject: 'M' },
-  { q: 'The slope of tangent to curve y = x³ at x = 2 is:', options: ['6', '8', '12', '4'], ans: 2, category: 'Mathematics', subject: 'M' },
-  { q: 'Cos(75°) = ?', options: ['(√6–√2)/4', '(√6+√2)/4', '(√3–1)/2√2', '(√3+1)/2'], ans: 0, category: 'Mathematics', subject: 'M' },
+  { q: 'If f(x) = x² - 3x + 2, then f(0)+f(1)+f(2) = ?', options: ['0', '2', '3', '4'], ans: 1, category: 'Functions', subject: 'M' },
+  { q: 'd/dx [sin(x²)] = ?', options: ['cos(x²)', '2x cos(x²)', 'cos(2x)', '2cos(x²)'], ans: 1, category: 'Differentiation', subject: 'M' },
+  { q: '∫(1/x)dx = ?', options: ['x + C', 'ln|x| + C', '1/x² + C', '-1/x + C'], ans: 1, category: 'Integration', subject: 'M' },
+  { q: 'Sum of roots of ax² + bx + c = 0 is:', options: ['b/a', '-b/a', 'c/a', '-c/a'], ans: 1, category: 'Quadratic Equations', subject: 'M' },
+  { q: 'lim(x→0) sin(x)/x = ?', options: ['0', 'x', '1', '∞'], ans: 2, category: 'Limits', subject: 'M' },
+  { q: 'Eccentricity of a circle is:', options: ['0', '1', '<1', '>1'], ans: 0, category: 'Conic Sections', subject: 'M' },
+  { q: 'If det(A) = 5 for 3x3 matrix A, then det(2A) = ?', options: ['10', '20', '40', '25'], ans: 2, category: 'Matrices', subject: 'M' },
+  { q: 'Angle between vectors i+j and i-j is:', options: ['0°', '45°', '90°', '180°'], ans: 2, category: 'Vectors', subject: 'M' },
+  { q: 'General solution of dy/dx = y is:', options: ['y=Ce^x', 'y=Cx', 'y=C ln(x)', 'y=Ce^(-x)'], ans: 0, category: 'Differential Equations', subject: 'M' },
+  { q: 'Slope of tangent to y = x³ at x = 2 is:', options: ['6', '8', '12', '4'], ans: 2, category: 'Differentiation', subject: 'M' },
+  { q: 'cos(75°) = ?', options: ['(sqrt6-sqrt2)/4', '(sqrt6+sqrt2)/4', '(sqrt3-1)/2sqrt2', '(sqrt3+1)/2'], ans: 0, category: 'Trigonometry', subject: 'M' },
+  { q: 'Number of terms in expansion of (1+x)^n is:', options: ['n', 'n-1', 'n+1', '2n'], ans: 2, category: 'Binomial Theorem', subject: 'M' },
+  { q: 'If A and B are mutually exclusive, P(AuB) = ?', options: ['P(A)*P(B)', 'P(A)+P(B)', 'P(A)-P(B)', '1'], ans: 1, category: 'Probability', subject: 'M' },
+  { q: '∫₀^π sin(x) dx = ?', options: ['0', '1', '2', 'π'], ans: 2, category: 'Integration', subject: 'M' },
+  { q: 'The value of i^(4n+1) where n is integer:', options: ['1', '-1', 'i', '-i'], ans: 2, category: 'Complex Numbers', subject: 'M' },
+  { q: 'If arithmetic mean of two numbers is 10 and geometric mean is 8, the numbers are:', options: ['4,16', '2,18', '6,14', '5,15'], ans: 0, category: 'Sequences', subject: 'M' },
+  { q: 'Area of triangle with vertices (0,0),(4,0),(0,3) is:', options: ['6', '7', '12', '3.5'], ans: 0, category: 'Coordinate Geometry', subject: 'M' },
+  { q: 'The number of diagonals in a hexagon is:', options: ['6', '9', '12', '15'], ans: 1, category: 'Permutations', subject: 'M' },
+  { q: 'tan(A+B) = ? when tanA=1/2 and tanB=1/3:', options: ['1', '5/6', '6/5', '1/6'], ans: 0, category: 'Trigonometry', subject: 'M' },
+  { q: 'Sum of infinite GP with first term 1 and ratio 1/2:', options: ['1', '1.5', '2', '3'], ans: 2, category: 'Sequences', subject: 'M' },
 ];
 
 const ANSWER_TIMEOUT = 30000;
@@ -95,35 +111,26 @@ function extractText(msg) {
   const m = msg.message;
   if (!m) return '';
   const inner = m.ephemeralMessage?.message || m.viewOnceMessageV2?.message || m;
-  return (
-    inner.conversation ||
-    inner.extendedTextMessage?.text ||
-    inner.imageMessage?.caption ||
-    inner.videoMessage?.caption ||
-    ''
-  );
+  return inner.conversation || inner.extendedTextMessage?.text || inner.imageMessage?.caption || inner.videoMessage?.caption || '';
 }
 
 function parseAnswer(rawText) {
-  let clean = rawText.replace(/@\d+/g, '').trim();
-  clean = clean.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  let clean = rawText.replace(/@\d+/g, '').trim().replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   const ch = clean.charAt(0);
-  if (['A', 'B', 'C', 'D'].includes(ch)) return LETTERS.indexOf(ch);
-  if (['1', '2', '3', '4'].includes(ch)) return parseInt(ch) - 1;
+  if (['A','B','C','D'].includes(ch)) return LETTERS.indexOf(ch);
+  if (['1','2','3','4'].includes(ch)) return parseInt(ch) - 1;
   return -1;
 }
 
 // ─────────────────────────────────────────
-//  CORE: PROCESS ANSWER + REACT ON MSG
+//  CORE: PROCESS ANSWER
+//  msgKey = msg.key when text answer (for react)
+//  msgKey = null for poll answers (can't react on polls)
 // ─────────────────────────────────────────
 async function processAnswer(sock, jid, sender, session, answerIndex, nameOverride, msgKey = null) {
   if (session.answered.has(sender)) {
-    // Only warn if they typed (msgKey present), not for poll re-votes (silent)
     if (msgKey) {
-      await sock.sendMessage(jid, {
-        text: `⚠️ @${sender.split('@')[0]}, you already answered!`,
-        mentions: [sender]
-      });
+      await sock.sendMessage(jid, { text: `⚠️ @${sender.split('@')[0]}, already answered!`, mentions: [sender] });
     }
     return 'already';
   }
@@ -136,13 +143,11 @@ async function processAnswer(sock, jid, sender, session, answerIndex, nameOverri
   const isCorrect = answerIndex === qData.ans;
   const correctOption = qData.options[qData.ans];
 
-  // React on student's message if msgKey is provided
+  // React on text message (not possible on poll)
   if (msgKey) {
     try {
-      await sock.sendMessage(jid, {
-        react: { text: isCorrect ? '✅' : '❌', key: msgKey }
-      });
-    } catch (e) { /* silent */ }
+      await sock.sendMessage(jid, { react: { text: isCorrect ? '✅' : '❌', key: msgKey } });
+    } catch (_) {}
   }
 
   const allScores = quizScores.get(jid) || {};
@@ -153,23 +158,25 @@ async function processAnswer(sock, jid, sender, session, answerIndex, nameOverri
   if (isCorrect) {
     allScores[sender] += 10;
     session.scores[sender] += 10;
+    // Always send response (poll voters also need to see result)
     await sock.sendMessage(jid, {
-      text: `✅ *@${name}* sahi jawab! *+10 pts* 🎯\n🏆 Total: *${allScores[sender]} pts*`,
+      text: `✅ *${name}* sahi jawab! *+10 pts* 🎯\n🏆 Total: *${allScores[sender]} pts*`,
       mentions: [sender]
     });
     clearTimeout(session.timeout);
     if (session.currentPollId) pollToQuiz.delete(session.currentPollId);
     session.current++;
     const nextFn = session.mode === 'image'
-      ? () => require('./jee').sendImageQuestion?.(sock, jid) || sendNextQuestion(sock, jid, session.mode)
+      ? () => { try { require('./jee').sendImageQuestion(sock, jid); } catch(e) { sendNextQuestion(sock, jid, session.mode); } }
       : () => sendNextQuestion(sock, jid, session.mode);
     setTimeout(nextFn, 2500);
     return 'correct';
   } else {
     allScores[sender] -= 2;
     session.scores[sender] -= 2;
+    // Always send response for poll voters too
     await sock.sendMessage(jid, {
-      text: `❌ *@${name}* galat! *-2 pts*\n✅ Sahi tha: *${LETTERS[qData.ans]}) ${correctOption}*\n📊 Total: *${allScores[sender]} pts*`,
+      text: `❌ *${name}* galat! *-2 pts*\n✅ Sahi tha: *${LETTERS[qData.ans]}) ${correctOption}*\n📊 Total: *${allScores[sender]} pts*`,
       mentions: [sender]
     });
     return 'wrong';
@@ -186,10 +193,10 @@ async function sendNextQuestion(sock, jid, mode = 'text') {
   if (session.current >= session.questions.length) {
     activeQuizzes.delete(jid);
     const scores = quizScores.get(jid);
-    let finalText = `🎉 *QUIZ COMPLETED!* 🎉\n\n`;
-    finalText += formatLeaderboard(scores, session.participants);
-    finalText += `\n\n🔁 Phir se shuru karo *.quiz* ya *.jee* se`;
-    await sock.sendMessage(jid, { text: finalText });
+    let fin = `🎉 *QUIZ COMPLETED!* 🎉\n\n`;
+    fin += formatLeaderboard(scores, session.participants);
+    fin += `\n\n🔁 Phir se: *.quiz* ya *.jee*`;
+    await sock.sendMessage(jid, { text: fin });
     return;
   }
 
@@ -198,46 +205,35 @@ async function sendNextQuestion(sock, jid, mode = 'text') {
   session.pollVoters = new Set();
   session.currentPollId = null;
 
-  const subjectEmoji = { P: '⚛️', C: '🧪', M: '📐' };
-  const emoji = subjectEmoji[qData.subject] || '📚';
+  const subEmoji = { P: '⚛️', C: '🧪', M: '📐' };
+  await sock.sendMessage(jid, {
+    text:
+      `🌿 *Quiz* 🌿\n` +
+      `[ *Q${session.current + 1}/${session.questions.length}* ] ${subEmoji[qData.subject]||'📚'} *${qData.category}*\n\n` +
+      `❓ *${qData.q}*\n\n⏱️ _30 seconds!_`
+  });
 
-  const headerText =
-    `🌿 *Quiz* 🌿\n` +
-    `[ *Question ${session.current + 1} / ${session.questions.length}* ]\n` +
-    `${emoji} Chapter: *${qData.category}*\n\n` +
-    `❓ *Question-*\n` +
-    `${qData.q}\n\n` +
-    `⏱️ _You have 30 seconds!_`;
-
-  await sock.sendMessage(jid, { text: headerText });
-
-  let pollMsg;
   try {
-    pollMsg = await sock.sendMessage(jid, {
-      poll: {
-        name: `📝 *Options:*`,
-        values: qData.options,
-        selectableOptionsCount: 1
-      }
+    const pm = await sock.sendMessage(jid, {
+      poll: { name: '📝 Options:', values: qData.options, selectableOptionsCount: 1 }
     });
-    if (pollMsg?.key?.id) {
-      session.currentPollId = pollMsg.key.id;
-      pollToQuiz.set(pollMsg.key.id, { jid, questionIndex: session.current });
+    if (pm?.key?.id) {
+      session.currentPollId = pm.key.id;
+      pollToQuiz.set(pm.key.id, { jid, questionIndex: session.current });
     }
   } catch (e) {
-    let fallback = `*Options:*\n`;
-    qData.options.forEach((opt, i) => { fallback += `  ${LETTERS[i]})  ${opt}\n`; });
-    fallback += `\n📝 Type A / B / C / D`;
-    await sock.sendMessage(jid, { text: fallback });
+    let fb = `*Options:*\n`;
+    qData.options.forEach((o, i) => { fb += `  ${LETTERS[i]})  ${o}\n`; });
+    await sock.sendMessage(jid, { text: fb });
   }
 
   session.timeout = setTimeout(async () => {
     const cur = activeQuizzes.get(jid);
     if (!cur || cur.current !== session.current) return;
     if (session.currentPollId) pollToQuiz.delete(session.currentPollId);
-    const correctOption = qData.options[qData.ans];
+    const correct = qData.options[qData.ans];
     await sock.sendMessage(jid, {
-      text: `⏱️ *Time's up!*\n\n✅ Correct: *${LETTERS[qData.ans]}) ${correctOption}*\n\n_Next question..._`
+      text: `⏱️ *Time's up!*\n\n✅ Correct: *${LETTERS[qData.ans]}) ${correct}*\n\n_Next question..._`
     });
     cur.current++;
     setTimeout(() => sendNextQuestion(sock, jid, mode), 2000);
@@ -245,8 +241,9 @@ async function sendNextQuestion(sock, jid, mode = 'text') {
 }
 
 // ─────────────────────────────────────────
-//  POLL VOTE HANDLER — Text mode (.quiz)
-//  Blocks multiple votes from same user
+//  POLL VOTE HANDLER
+//  KEY FIX: Add participant name from pollUpdate.pushName
+//  KEY FIX: Always send correct/wrong message to chat
 // ─────────────────────────────────────────
 module.exports.handlePollVote = async function(sock, pollUpdate) {
   try {
@@ -259,59 +256,58 @@ module.exports.handlePollVote = async function(sock, pollUpdate) {
     if (!session || session.current !== questionIndex) return false;
 
     const sender = pollUpdate.voter;
-    const selectedOptions = pollUpdate.selectedOptions || [];
+    const selected = pollUpdate.selectedOptions || [];
 
     // Block multiple votes
     if (!session.pollVoters) session.pollVoters = new Set();
-    if (session.pollVoters.has(sender)) return true; // silent ignore
-    if (!selectedOptions.length) return false;
+    if (session.pollVoters.has(sender)) return true;
+    if (!selected.length) return false;
     session.pollVoters.add(sender);
 
-    const chosenText = selectedOptions[0];
-    const qData = session.questions[session.current];
-    const chosenIndex = qData.options.indexOf(chosenText);
-    if (chosenIndex === -1) return false;
+    // Register participant name
+    if (!session.participants[sender]) {
+      session.participants[sender] = pollUpdate.pushName || sender.split('@')[0];
+    }
 
-    // Pass null as msgKey (poll votes can't be reacted to)
-    await processAnswer(sock, jid, sender, session, chosenIndex, null, null);
+    const qData = session.questions[session.current];
+    const idx = qData.options.indexOf(selected[0]);
+    if (idx === -1) return false;
+
+    // Pass name override + null msgKey (polls can't be reacted to)
+    await processAnswer(sock, jid, sender, session, idx, session.participants[sender], null);
     return true;
   } catch (e) {
-    console.error('[Quiz PollVote Error]', e.message);
+    console.error('[PollVote Error]', e.message);
     return false;
   }
 };
 
 // ─────────────────────────────────────────
-//  TEXT ANSWER HANDLER — passes msg.key for react
+//  TEXT ANSWER HANDLER — reacts ✅/❌ on message
 // ─────────────────────────────────────────
 module.exports.handleAnswer = async function(sock, msg) {
   const jid = msg.key.remoteJid;
   const sender = msg.key.participant || msg.key.remoteJid;
   const session = activeQuizzes.get(jid);
   if (!session) return false;
-  // Only handle text mode here; image mode handled by jee.js
-  if (session.mode === 'image') return false;
+  if (session.mode === 'image') return false; // handled by jee.js
 
-  const rawText = extractText(msg);
-  const answerIndex = parseAnswer(rawText);
-  if (answerIndex === -1) return false;
+  const raw = extractText(msg);
+  const idx = parseAnswer(raw);
+  if (idx === -1) return false;
 
-  if (!session.participants[sender]) {
+  if (!session.participants[sender])
     session.participants[sender] = msg.pushName || sender.split('@')[0];
-  }
 
-  // Pass msg.key so processAnswer can react on student's message
-  await processAnswer(sock, jid, sender, session, answerIndex, session.participants[sender], msg.key);
+  await processAnswer(sock, jid, sender, session, idx, session.participants[sender], msg.key);
   return true;
 };
 
-// ─────────────────────────────────────────
-//  EXPORTED MAPS & HELPERS
-// ─────────────────────────────────────────
-module.exports.activeQuizzes = activeQuizzes;
-module.exports.quizScores    = quizScores;
-module.exports.pollToQuiz    = pollToQuiz;
-module.exports.jeeQuestions  = jeeQuestions;
+// Exports
+module.exports.activeQuizzes     = activeQuizzes;
+module.exports.quizScores        = quizScores;
+module.exports.pollToQuiz        = pollToQuiz;
+module.exports.jeeQuestions      = jeeQuestions;
 module.exports.getRandomQuestions = getRandomQuestions;
 module.exports.formatLeaderboard  = formatLeaderboard;
 module.exports.sendNextQuestion   = sendNextQuestion;
@@ -335,42 +331,31 @@ module.exports = {
     const sender = msg.key.participant || msg.key.remoteJid;
     const subCmd = args[0]?.toLowerCase() || 'start';
 
-    if (['leaderboard', 'lb'].includes(subCmd)) {
-      const scores = quizScores.get(jid);
-      const session = activeQuizzes.get(jid);
-      await sock.sendMessage(jid, { text: formatLeaderboard(scores, session?.participants) }, { quoted: msg });
-      return;
+    if (['leaderboard','lb'].includes(subCmd)) {
+      const sc = quizScores.get(jid); const se = activeQuizzes.get(jid);
+      await sock.sendMessage(jid, { text: formatLeaderboard(sc, se?.participants) }, { quoted: msg }); return;
     }
-
     if (subCmd === 'score') {
-      const scores = quizScores.get(jid);
-      const myScore = scores?.[sender] || 0;
-      const name = msg.pushName || sender.split('@')[0];
-      await sock.sendMessage(jid, { text: `📊 *${name}*, your score: *${myScore} pts* 🎯` }, { quoted: msg });
-      return;
+      const sc = quizScores.get(jid); const pts = sc?.[sender] || 0;
+      await sock.sendMessage(jid, { text: `📊 *${msg.pushName||sender.split('@')[0]}* — *${pts} pts* 🎯` }, { quoted: msg }); return;
     }
-
-    if (['stop', 'end'].includes(subCmd)) {
-      const session = activeQuizzes.get(jid);
-      if (!session) { await sock.sendMessage(jid, { text: '❌ No quiz is running!' }, { quoted: msg }); return; }
-      clearTimeout(session.timeout);
-      if (session.currentPollId) pollToQuiz.delete(session.currentPollId);
+    if (['stop','end'].includes(subCmd)) {
+      const se = activeQuizzes.get(jid);
+      if (!se) { await sock.sendMessage(jid, { text: '❌ No quiz running!' }, { quoted: msg }); return; }
+      clearTimeout(se.timeout);
+      if (se.currentPollId) pollToQuiz.delete(se.currentPollId);
       activeQuizzes.delete(jid);
-      const scores = quizScores.get(jid);
-      await sock.sendMessage(jid, { text: `🛑 *Quiz stopped!*\n\n` + formatLeaderboard(scores, session.participants) });
-      return;
+      await sock.sendMessage(jid, { text: `🛑 *Quiz stopped!*\n\n` + formatLeaderboard(quizScores.get(jid), se.participants) }); return;
     }
-
     if (activeQuizzes.has(jid)) {
-      await sock.sendMessage(jid, { text: '⚠️ Quiz already running! Use *.quiz stop* to stop.' }, { quoted: msg });
-      return;
+      await sock.sendMessage(jid, { text: '⚠️ Quiz already running! *.quiz stop* to stop.' }, { quoted: msg }); return;
     }
 
-    let subjects = ['P', 'C', 'M'];
+    let subjects = ['P','C','M'];
     if (subCmd === 'physics')   subjects = ['P'];
     if (subCmd === 'chemistry') subjects = ['C'];
-    if (['math', 'maths'].includes(subCmd)) subjects = ['M'];
-    if (subCmd === 'pcm') subjects = ['P', 'C', 'M'];
+    if (['math','maths'].includes(subCmd)) subjects = ['M'];
+    if (subCmd === 'pcm') subjects = ['P','C','M'];
 
     const questions = getRandomQuestions(10, subjects);
     const session = {
@@ -382,22 +367,16 @@ module.exports = {
     activeQuizzes.set(jid, session);
     if (!quizScores.has(jid)) quizScores.set(jid, {});
 
-    const subjectLabel = subjects.length === 3 ? 'PCM' : (subjects[0] === 'P' ? 'Physics' : subjects[0] === 'C' ? 'Chemistry' : 'Mathematics');
-
+    const label = subjects.length===3 ? 'PCM' : (subjects[0]==='P'?'Physics':subjects[0]==='C'?'Chemistry':'Mathematics');
     await sock.sendMessage(jid, {
       text:
         `🎮 *JEE DAILY CHALLENGE!* 🎮\n\n` +
-        `📋 *10 Questions* — ${subjectLabel}\n` +
-        `📊 *Difficulty:* JEE Mains Level\n\n` +
-        `🏆 *Scoring:*\n` +
-        `  • ✅ Correct = *+10 pts*\n` +
-        `  • ❌ Wrong = *-2 pts*\n` +
-        `  • ⏱️ Timeout = *0 pts*\n\n` +
-        `📌 Poll tap karke ya *A/B/C/D* type karke answer do\n` +
+        `📋 *10 Questions* — ${label} | JEE Mains Level\n\n` +
+        `🏆 *Scoring:* ✅ +10 | ❌ -2 | ⏱️ timeout = 0\n\n` +
+        `📌 Poll tap karo ya *A/B/C/D* type karo\n` +
         `⏸️ *.quiz stop* | *.quiz score* | *.quiz lb*\n\n` +
         `_Starting in 3 seconds..._`
     });
-
     setTimeout(() => sendNextQuestion(sock, jid, 'text'), 3000);
   }
 };

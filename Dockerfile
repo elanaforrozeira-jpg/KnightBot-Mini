@@ -1,24 +1,29 @@
-FROM node:20-slim
+FROM node:20-bullseye-slim
 
-# Install fontconfig + basic fonts so canvas can render text
+# Install all native build deps for canvas + fonts
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    fontconfig \
-    fonts-liberation \
-    fonts-dejavu-core \
+    build-essential \
+    python3 \
+    pkg-config \
     libcairo2-dev \
     libpango1.0-dev \
     libjpeg-dev \
     libgif-dev \
     librsvg2-dev \
-    build-essential \
-    python3 \
+    libpixman-1-dev \
+    fontconfig \
+    fonts-liberation \
+    fonts-dejavu-core \
+    fonts-noto \
     && fc-cache -fv \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --omit=dev
+
+# Full install (canvas needs native compile, so NOT --omit=dev for build step)
+RUN npm install
 
 COPY . .
 

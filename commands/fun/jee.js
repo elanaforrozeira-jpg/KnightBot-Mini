@@ -2,9 +2,18 @@
  * 🖼️ JEE IMAGE QUIZ COMMAND
  * Sends question as a beautiful image card + native poll
  * Command: .jee | .jee physics | .jee chemistry | .jee math | .jee stop | .jee score
+ *
+ * Font fix: Uses Liberation Sans / DejaVu Sans (installed via Dockerfile)
+ * Fallback: If canvas fails (no fonts), sends styled text instead
  */
 
-const { createCanvas } = require('canvas');
+let createCanvas;
+try {
+  ({ createCanvas } = require('canvas'));
+} catch (e) {
+  createCanvas = null;
+}
+
 const {
   activeQuizzes,
   quizScores,
@@ -19,22 +28,19 @@ const {
 } = require('./quiz');
 
 // ─────────────────────────────────────────
-//  RENDER QUESTION AS IMAGE
+//  RENDER QUESTION AS IMAGE (canvas)
 // ─────────────────────────────────────────
 async function renderQuestionImage(qData, index, total) {
+  if (!createCanvas) throw new Error('canvas module not available');
+
   const W = 900;
   const PADDING = 40;
   const subjectColors = { P: '#1a73e8', C: '#0f9d58', M: '#f4b400' };
   const accentColor = subjectColors[qData.subject] || '#6200ea';
-  const subjectEmoji = { P: '⚛', C: '🧪', M: '📐' };
 
-  // Use system-safe font stack
-  const FONT = 'Arial, sans-serif';
-
-  // Measure text to calculate dynamic height
-  const tempCanvas = createCanvas(W, 100);
-  const tempCtx = tempCanvas.getContext('2d');
-  tempCtx.font = `26px ${FONT}`;
+  // Use fonts available on Linux after Dockerfile install
+  // Liberation Sans = Arial equivalent; DejaVu Sans is fallback
+  const FONT = 'Liberation Sans';
 
   function wrapText(ctx, text, maxWidth) {
     const words = text.split(' ');
@@ -53,15 +59,18 @@ async function renderQuestionImage(qData, index, total) {
     return lines;
   }
 
+  // Measure with temp canvas
+  const tempCanvas = createCanvas(W, 100);
+  const tempCtx = tempCanvas.getContext('2d');
+  tempCtx.font = `26px "${FONT}"`;
   const qLines = wrapText(tempCtx, qData.q, W - PADDING * 2 - 20);
 
-  // Calculate total height needed
-  const topBarH   = 70;
-  const titleH    = 60;
-  const qLabelH   = 40;
-  const qTextH    = qLines.length * 36 + 20;
-  const optionsH  = qData.options.length * 60 + 20;
-  const footerH   = 60;
+  const topBarH  = 70;
+  const titleH   = 60;
+  const qLabelH  = 40;
+  const qTextH   = qLines.length * 36 + 20;
+  const optionsH = qData.options.length * 60 + 20;
+  const footerH  = 60;
   const H = topBarH + titleH + qLabelH + qTextH + optionsH + footerH + 40;
 
   const canvas = createCanvas(W, H);
@@ -77,21 +86,21 @@ async function renderQuestionImage(qData, index, total) {
 
   // Top bar text
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold 22px ${FONT}`;
-  ctx.fillText(`* DAILY CHALLENGE *`, PADDING, 42);
-  ctx.font = `20px ${FONT}`;
+  ctx.font = `bold 22px "${FONT}"`;
+  ctx.fillText('* DAILY CHALLENGE *', PADDING, 42);
+  ctx.font = `20px "${FONT}"`;
   ctx.fillText(`Q ${index + 1} / ${total}`, W - 140, 42);
 
   let y = topBarH + 30;
 
   // Chapter label
+  const subEmoji = { P: '[PHY]', C: '[CHEM]', M: '[MATH]' };
   ctx.fillStyle = accentColor;
-  ctx.font = `bold 20px ${FONT}`;
-  const subEmoji = subjectEmoji[qData.subject] || '📚';
-  ctx.fillText(`${subEmoji} Chapter: ${qData.category}`, PADDING, y);
+  ctx.font = `bold 20px "${FONT}"`;
+  ctx.fillText(`${subEmoji[qData.subject] || '[PCM]'} Chapter: ${qData.category}`, PADDING, y);
   y += 44;
 
-  // Divider
+  // Divider line
   ctx.strokeStyle = accentColor;
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -102,13 +111,13 @@ async function renderQuestionImage(qData, index, total) {
 
   // Question label
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold 22px ${FONT}`;
+  ctx.font = `bold 22px "${FONT}"`;
   ctx.fillText('>> Question', PADDING, y);
   y += 38;
 
-  // Question text (wrapped)
+  // Question text
   ctx.fillStyle = '#e0e0e0';
-  ctx.font = `26px ${FONT}`;
+  ctx.font = `26px "${FONT}"`;
   for (const line of qLines) {
     ctx.fillText(line, PADDING + 10, y);
     y += 36;
@@ -119,28 +128,24 @@ async function renderQuestionImage(qData, index, total) {
   const optBg    = ['#16213e', '#0f3460', '#16213e', '#0f3460'];
   const optLabel = ['A', 'B', 'C', 'D'];
   for (let i = 0; i < qData.options.length; i++) {
-    // Option box
     ctx.fillStyle = optBg[i % 2];
     ctx.beginPath();
-    if (ctx.roundRect) {
-      ctx.roundRect(PADDING, y, W - PADDING * 2, 50, 10);
-    } else {
-      ctx.rect(PADDING, y, W - PADDING * 2, 50);
-    }
+    if (ctx.roundRect) ctx.roundRect(PADDING, y, W - PADDING * 2, 50, 10);
+    else ctx.rect(PADDING, y, W - PADDING * 2, 50);
     ctx.fill();
 
-    // Letter badge
+    // Badge circle
     ctx.fillStyle = accentColor;
     ctx.beginPath();
     ctx.arc(PADDING + 28, y + 25, 18, 0, Math.PI * 2);
     ctx.fill();
+
     ctx.fillStyle = '#ffffff';
-    ctx.font = `bold 18px ${FONT}`;
+    ctx.font = `bold 18px "${FONT}"`;
     ctx.fillText(optLabel[i], PADDING + 22, y + 31);
 
-    // Option text
     ctx.fillStyle = '#f0f0f0';
-    ctx.font = `22px ${FONT}`;
+    ctx.font = `22px "${FONT}"`;
     ctx.fillText(qData.options[i], PADDING + 58, y + 32);
 
     y += 60;
@@ -149,14 +154,35 @@ async function renderQuestionImage(qData, index, total) {
 
   // Footer
   ctx.fillStyle = '#aaaaaa';
-  ctx.font = `18px ${FONT}`;
-  ctx.fillText('⏱ 30 seconds  |  Tap poll below OR type A / B / C / D', PADDING, y + 30);
+  ctx.font = `18px "${FONT}"`;
+  ctx.fillText('[30s] Tap poll below OR type A / B / C / D', PADDING, y + 30);
 
   return canvas.toBuffer('image/png');
 }
 
 // ─────────────────────────────────────────
-//  SEND IMAGE QUESTION
+//  STYLED TEXT FALLBACK (when canvas has no fonts)
+//  Builds a rich-looking text message instead of image
+// ─────────────────────────────────────────
+function buildTextQuestion(qData, index, total) {
+  const subEmoji = { P: '⚛️', C: '🧪', M: '📐' };
+  const emoji = subEmoji[qData.subject] || '📚';
+  let text = '';
+  text += `┌─────────────────────────└\n`;
+  text += `┃ 🌟 *JEE DAILY CHALLENGE*\n`;
+  text += `┃ Q${index + 1}/${total} — ${emoji} *${qData.category}*\n`;
+  text += `└─────────────────────────┘\n\n`;
+  text += `❓ *${qData.q}*\n\n`;
+  text += `📌 *Options:*\n`;
+  qData.options.forEach((opt, i) => {
+    text += `  *${LETTERS[i]})* ${opt}\n`;
+  });
+  text += `\n⏱ _30 seconds | Type A / B / C / D or tap poll_`;
+  return text;
+}
+
+// ─────────────────────────────────────────
+//  SEND IMAGE QUESTION (with text fallback)
 // ─────────────────────────────────────────
 async function sendImageQuestion(sock, jid) {
   const session = activeQuizzes.get(jid);
@@ -174,29 +200,30 @@ async function sendImageQuestion(sock, jid) {
 
   const qData = session.questions[session.current];
   session.answered.clear();
-  session.pollVoters = new Set(); // ← fresh set for THIS question's poll
+  session.pollVoters = new Set();
   session.currentPollId = null;
 
-  // Render image
-  let imgBuffer;
+  // Try image, fallback to styled text
+  let usedImage = false;
   try {
-    imgBuffer = await renderQuestionImage(qData, session.current, session.questions.length);
+    const imgBuffer = await renderQuestionImage(qData, session.current, session.questions.length);
+    await sock.sendMessage(jid, {
+      image: imgBuffer,
+      caption:
+        `🌿 *JEE Daily Challenge* 🌿\n` +
+        `[ Q${session.current + 1}/${session.questions.length} — ${qData.category} ]\n\n` +
+        `⏱️ _30 seconds! Poll tap karke answer do_`
+    });
+    usedImage = true;
   } catch (e) {
     console.error('[JEE Image Render Error]', e.message);
-    await sendNextQuestion(sock, jid, 'text');
-    return;
+    // Fallback: styled text
+    await sock.sendMessage(jid, {
+      text: buildTextQuestion(qData, session.current, session.questions.length)
+    });
   }
 
-  // Send image with caption
-  await sock.sendMessage(jid, {
-    image: imgBuffer,
-    caption:
-      `🌿 *JEE Daily Challenge* 🌿\n` +
-      `[ Q${session.current + 1}/${session.questions.length} — ${qData.category} ]\n\n` +
-      `⏱️ _30 seconds! Poll tap karke answer do_`
-  });
-
-  // Native poll
+  // Native poll (always sent regardless of image/text)
   let pollMsg;
   try {
     pollMsg = await sock.sendMessage(jid, {
@@ -232,8 +259,7 @@ async function sendImageQuestion(sock, jid) {
 }
 
 // ─────────────────────────────────────────
-//  IMAGE MODE POLL VOTE HANDLER
-//  Blocks multiple votes from same user
+//  POLL VOTE HANDLER (blocks multiple votes)
 // ─────────────────────────────────────────
 module.exports.handlePollVote = async function(sock, pollUpdate) {
   try {
@@ -248,13 +274,8 @@ module.exports.handlePollVote = async function(sock, pollUpdate) {
     const sender = pollUpdate.voter;
     const selectedOptions = pollUpdate.selectedOptions || [];
 
-    // Block if user already voted on this poll
     if (!session.pollVoters) session.pollVoters = new Set();
-    if (session.pollVoters.has(sender)) {
-      // Silently ignore re-vote
-      return true;
-    }
-
+    if (session.pollVoters.has(sender)) return true; // silent ignore
     if (!selectedOptions.length) return false;
     session.pollVoters.add(sender);
 
@@ -263,7 +284,7 @@ module.exports.handlePollVote = async function(sock, pollUpdate) {
     const chosenIndex = qData.options.indexOf(chosenText);
     if (chosenIndex === -1) return false;
 
-    await processAnswer(sock, jid, sender, session, chosenIndex, null);
+    await processAnswer(sock, jid, sender, session, chosenIndex, null, null);
     return true;
   } catch (e) {
     return false;
@@ -271,8 +292,7 @@ module.exports.handlePollVote = async function(sock, pollUpdate) {
 };
 
 // ─────────────────────────────────────────
-//  TEXT ANSWER HANDLER (A/B/C/D)
-//  Reacts ✅ or ❌ on student's message
+//  TEXT ANSWER HANDLER (A/B/C/D + react)
 // ─────────────────────────────────────────
 function extractText(msg) {
   const m = msg.message;
@@ -306,14 +326,14 @@ module.exports.handleAnswer = async function(sock, msg) {
   const qData = session.questions[session.current];
   const isCorrect = answerIndex === qData.ans;
 
-  // ✅/❌ React on the student's own message
+  // React ✅/❌ on student's message
   try {
     await sock.sendMessage(jid, {
       react: { text: isCorrect ? '✅' : '❌', key: msg.key }
     });
   } catch (e) { /* silent */ }
 
-  await processAnswer(sock, jid, sender, session, answerIndex, session.participants[sender]);
+  await processAnswer(sock, jid, sender, session, answerIndex, session.participants[sender], msg.key);
   return true;
 };
 

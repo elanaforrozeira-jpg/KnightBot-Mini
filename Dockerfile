@@ -1,6 +1,6 @@
 FROM node:20-bullseye-slim
 
-# Install git + native build deps for canvas + fonts
+# Install git + native build deps + yt-dlp
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     build-essential \
@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     fonts-dejavu-core \
     fonts-noto \
+    && pip3 install --no-cache-dir yt-dlp \
     && fc-cache -fv \
     && rm -rf /var/lib/apt/lists/*
 
@@ -24,10 +25,9 @@ WORKDIR /app
 
 COPY package*.json ./
 
-# Install all deps
 RUN npm install --legacy-peer-deps
 
-# Try canvas rebuild (ok if fails, code has text fallback)
+# Try canvas rebuild (ok if fails)
 RUN npm rebuild canvas --update-binary || echo "canvas rebuild skipped"
 
 COPY . .

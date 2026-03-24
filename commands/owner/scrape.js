@@ -9,12 +9,9 @@ const axios = require('axios');
 const fs    = require('fs');
 const path  = require('path');
 
-// ──────────────────────────────
-// CONFIG — Railway Env Variables mein daalo
-// ──────────────────────────────
-const MARKS_TOKEN  = process.env.MARKS_TOKEN  || '';  // Marks App Bearer token
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';  // GitHub Personal Access Token
-const GITHUB_REPO  = process.env.GITHUB_REPO  || 'elanaforrozeira-jpg/KnightBot-Mini';
+const MARKS_TOKEN   = process.env.MARKS_TOKEN   || '';
+const GITHUB_TOKEN  = process.env.GITHUB_TOKEN  || '';
+const GITHUB_REPO   = process.env.GITHUB_REPO   || 'elanaforrozeira-jpg/KnightBot-Mini';
 const GITHUB_BRANCH = process.env.GITHUB_BRANCH || 'main';
 
 const EXAM_ID   = '6995da5e576cd1ce1a19b560';
@@ -27,23 +24,19 @@ const SUBJECTS = {
   Maths:     '6996c065c905dafe76ae173d',
   Physics:   '6996c067c905dafe76ae175a',
 };
-
 const SUBJECT_SHORT = { Chemistry: 'C', Maths: 'M', Physics: 'P' };
 
-// ──────────────────────────────
-// AXIOS INSTANCE (human-like headers)
-// ──────────────────────────────
 function makeClient(token) {
   return axios.create({
     baseURL: BASE,
     timeout: 20000,
     headers: {
-      Authorization:  `Bearer ${token}`,
-      Accept:         'application/json, text/plain, */*',
-      'Accept-Language': 'en-US,en;q=0.9',
-      Origin:         'https://web.getmarks.app',
-      Referer:        'https://web.getmarks.app/',
-      'User-Agent':   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      Authorization:    `Bearer ${token}`,
+      Accept:           'application/json, text/plain, */*',
+      'Accept-Language':'en-US,en;q=0.9',
+      Origin:           'https://web.getmarks.app',
+      Referer:          'https://web.getmarks.app/',
+      'User-Agent':     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     },
   });
 }
@@ -51,37 +44,41 @@ function makeClient(token) {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rand  = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-// ──────────────────────────────
-// HTML + LATEX CLEANER (basic JS version)
-// ──────────────────────────────
+// Response se array nikalo — koi bhi key ho
+function extractArray(data) {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (typeof data !== 'object') return [];
+  // Saari keys check karo — jo pehli array mile
+  const knownKeys = ['chapters','questions','data','results','items','list','records'];
+  for (const k of knownKeys) {
+    if (Array.isArray(data[k])) return data[k];
+  }
+  // Koi bhi array wali key
+  for (const k of Object.keys(data)) {
+    if (Array.isArray(data[k]) && data[k].length > 0) return data[k];
+  }
+  return [];
+}
+
 function cleanText(raw) {
   if (!raw) return '';
   let t = String(raw);
-  // HTML tags
   t = t.replace(/<[^>]+>/g, ' ');
-  // Common LaTeX
   t = t.replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '($1/$2)');
   t = t.replace(/\\sqrt\{([^}]+)\}/g, 'sqrt($1)');
   const sym = {
-    '\\times': '×', '\\div': '÷', '\\pm': '±',
-    '\\alpha': 'α', '\\beta': 'β', '\\gamma': 'γ',
-    '\\Delta': 'Δ', '\\theta': 'θ', '\\lambda': 'λ',
-    '\\mu': 'μ', '\\pi': 'π', '\\sigma': 'σ', '\\omega': 'ω',
-    '\\infty': '∞', '\\leq': '≤', '\\geq': '≥',
-    '\\neq': '≠', '\\approx': '≈', '\\rightarrow': '→',
-    '\\leftarrow': '←', '\\cdot': '·', '\\\\': ' ',
+    '\\times':'×','\\div':'÷','\\pm':'±','\\alpha':'α','\\beta':'β',
+    '\\gamma':'γ','\\Delta':'Δ','\\theta':'θ','\\lambda':'λ','\\mu':'μ',
+    '\\pi':'π','\\sigma':'σ','\\omega':'ω','\\infty':'∞','\\leq':'≤',
+    '\\geq':'≥','\\neq':'≠','\\approx':'≈','\\rightarrow':'→',
+    '\\leftarrow':'←','\\cdot':'·','\\\\':' ',
   };
-  for (const [k, v] of Object.entries(sym)) {
-    t = t.split(k).join(v);
-  }
+  for (const [k, v] of Object.entries(sym)) t = t.split(k).join(v);
   t = t.replace(/\\[a-zA-Z]+/g, '').replace(/\$/g, '');
-  t = t.replace(/\s+/g, ' ').trim();
-  return t;
+  return t.replace(/\s+/g, ' ').trim();
 }
 
-// ──────────────────────────────
-// PARSE QUESTION
-// ──────────────────────────────
 function parseQuestion(item, chapterName, subjectShort) {
   const qObj  = item.question || item.title || {};
   const qText = cleanText(qObj.text || qObj.content || '');
@@ -104,25 +101,19 @@ function parseQuestion(item, chapterName, subjectShort) {
   const explanation = cleanText(
     typeof expObj === 'object' ? (expObj.text || expObj.content || '') : String(expObj)
   );
-
   const year = item.previousYear ? String(item.previousYear).slice(0, 4) : '';
 
   return {
-    q:           qText,
-    q_image:     qImg,
-    options:     options.slice(0, 4),
-    ans:         Math.min(ansIdx, options.length - 1),
-    explanation,
-    subject:     subjectShort,
-    category:    chapterName,
-    type:        item.questionType || 'singleCorrect',
+    q: qText, q_image: qImg,
+    options: options.slice(0, 4),
+    ans: Math.min(ansIdx, options.length - 1),
+    explanation, subject: subjectShort,
+    category: chapterName,
+    type: item.questionType || 'singleCorrect',
     year,
   };
 }
 
-// ──────────────────────────────
-// SCRAPE ALL — core function
-// ──────────────────────────────
 async function scrapeAll(token, onProgress) {
   const client = makeClient(token);
   const allQuestions = [];
@@ -130,9 +121,8 @@ async function scrapeAll(token, onProgress) {
 
   for (const [subjName, subjId] of Object.entries(SUBJECTS)) {
     const short = SUBJECT_SHORT[subjName];
-    await onProgress(`\ud83d\udcd6 ${subjName} chapters fetch ho rahe hain...`);
+    await onProgress(`📖 ${subjName} chapters fetch ho rahe hain...`);
 
-    // Chapters fetch
     let chapters = [];
     try {
       const r = await client.get(
@@ -140,21 +130,30 @@ async function scrapeAll(token, onProgress) {
         { params: { platform: 'web', subjectId: subjId } }
       );
       const d = r.data;
-      chapters = d.chapters || d.data || d.results || (Array.isArray(d) ? d : []);
+
+      // DEBUG: response keys WhatsApp pe bhejo
+      const topKeys = typeof d === 'object' ? Object.keys(d).join(', ') : String(d).slice(0,100);
+      await onProgress(`🔍 ${subjName} raw keys: [${topKeys}]`);
+
+      chapters = extractArray(d);
     } catch (e) {
-      await onProgress(`\u274c ${subjName} chapters failed: ${e.message}`);
+      await onProgress(`❌ ${subjName} chapters failed: ${e.response?.status} ${e.message}`);
       continue;
     }
 
-    await onProgress(`  \u2705 ${chapters.length} chapters mila | ${subjName}`);
+    if (!chapters.length) {
+      await onProgress(`⚠️ ${subjName}: 0 chapters mila — API response check karo`);
+      continue;
+    }
+
+    await onProgress(`  ✅ ${chapters.length} chapters | ${subjName}`);
 
     for (const ch of chapters) {
       const chId   = ch._id || ch.id || '';
-      const chName = ch.title || ch.name || 'Unknown';
+      const chName = ch.title || ch.name || ch.chapterName || 'Unknown';
       if (!chId) continue;
 
-      let offset = 0;
-      let chCount = 0;
+      let offset = 0, chCount = 0;
 
       while (true) {
         let data;
@@ -166,15 +165,16 @@ async function scrapeAll(token, onProgress) {
           data = r.data;
         } catch (e) {
           if (e.response?.status === 429) {
-            await onProgress('\u26a0\ufe0f Rate limit! 90s ruk raha hoon...');
+            await onProgress('⚠️ Rate limit! 90s ruk raha hoon...');
             await sleep(90000);
             continue;
           }
+          await onProgress(`❌ ${chName} q-fetch failed: ${e.message}`);
           break;
         }
 
-        const items = data.questions || data.data || data.results || (Array.isArray(data) ? data : []);
-        const total = data.total || data.totalCount || 0;
+        const items = extractArray(data);
+        const total = data?.total || data?.totalCount || 0;
 
         if (!items.length) break;
 
@@ -187,67 +187,42 @@ async function scrapeAll(token, onProgress) {
         if (total && offset >= total) break;
         if (items.length < LIMIT) break;
 
-        // Human-like delay
         await sleep(rand(1500, 3500));
 
-        // Har 50 questions pe bada break
-        if (totalFetched % 50 === 0) {
+        if (totalFetched > 0 && totalFetched % 50 === 0) {
           const w = rand(25000, 45000);
-          await onProgress(`\ud83d\ude34 ${totalFetched} done — ${w/1000}s break (anti-ban)...`);
+          await onProgress(`😴 ${totalFetched} done — ${Math.round(w/1000)}s break...`);
           await sleep(w);
         }
       }
 
-      if (chCount > 0)
-        await onProgress(`  \u2705 ${chName}: ${chCount} questions`);
-
-      await sleep(rand(2000, 5000)); // chapter ke beech delay
+      if (chCount > 0) await onProgress(`  ✅ ${chName}: ${chCount} qs`);
+      await sleep(rand(2000, 4000));
     }
   }
-
   return allQuestions;
 }
 
-// ──────────────────────────────
-// PUSH TO GITHUB
-// ──────────────────────────────
 async function pushToGithub(content) {
   if (!GITHUB_TOKEN) return false;
-
-  const filePath = 'quiz_data.json';
-  const apiUrl   = `https://api.github.com/repos/${GITHUB_REPO}/contents/${filePath}`;
-  const headers  = {
+  const apiUrl = `https://api.github.com/repos/${GITHUB_REPO}/contents/quiz_data.json`;
+  const headers = {
     Authorization: `token ${GITHUB_TOKEN}`,
     Accept: 'application/vnd.github.v3+json',
     'User-Agent': 'KnightBot-Mini',
   };
-
-  // Get existing SHA
-  let sha = undefined;
-  try {
-    const r = await axios.get(apiUrl, { headers });
-    sha = r.data.sha;
-  } catch (_) {}
-
+  let sha;
+  try { sha = (await axios.get(apiUrl, { headers })).data.sha; } catch (_) {}
   const body = {
-    message: `\ud83e\udd16 Auto-update: quiz_data.json (${new Date().toISOString().slice(0,10)})`,
+    message: `🤖 Auto-update quiz_data.json (${new Date().toISOString().slice(0,10)})`,
     content: Buffer.from(content).toString('base64'),
-    branch:  GITHUB_BRANCH,
+    branch: GITHUB_BRANCH,
   };
   if (sha) body.sha = sha;
-
-  try {
-    await axios.put(apiUrl, body, { headers });
-    return true;
-  } catch (e) {
-    console.error('GitHub push failed:', e.message);
-    return false;
-  }
+  try { await axios.put(apiUrl, body, { headers }); return true; }
+  catch (e) { console.error('GitHub push failed:', e.message); return false; }
 }
 
-// ──────────────────────────────
-// COMMAND EXPORT
-// ──────────────────────────────
 module.exports = {
   name: 'scrape',
   aliases: ['scrapemarks', 'fetchquiz'],
@@ -259,11 +234,10 @@ module.exports = {
   async execute(sock, msg, args) {
     const jid = msg.key.remoteJid;
 
-    // STATUS check
     if (args[0] === 'status') {
       const qFile = path.join(__dirname, '../../quiz_data.json');
       if (!fs.existsSync(qFile)) {
-        await sock.sendMessage(jid, { text: '\u274c quiz_data.json abhi exist nahi karta.\n.scrape chalao pehle!' }, { quoted: msg });
+        await sock.sendMessage(jid, { text: '❌ quiz_data.json nahi hai.\n.scrape chalao pehle!' }, { quoted: msg });
         return;
       }
       try {
@@ -271,98 +245,71 @@ module.exports = {
         const meta = data.meta || {};
         await sock.sendMessage(jid, {
           text:
-            `\ud83d\udcca *Quiz Data Status*\n\n` +
-            `\ud83d\udccc Total: ${meta.total || data.questions?.length || 0}\n` +
-            `\u2699\ufe0f Physics: ${meta.subjects?.P || 0}\n` +
-            `\u2699\ufe0f Chemistry: ${meta.subjects?.C || 0}\n` +
-            `\u2699\ufe0f Maths: ${meta.subjects?.M || 0}\n` +
-            `\ud83d\udcc5 Source: ${meta.source || 'unknown'}`
+            `📊 *Quiz Data Status*\n\n` +
+            `📌 Total: ${meta.total || data.questions?.length || 0}\n` +
+            `⚙️ Physics: ${meta.subjects?.P || 0}\n` +
+            `⚙️ Chemistry: ${meta.subjects?.C || 0}\n` +
+            `⚙️ Maths: ${meta.subjects?.M || 0}\n` +
+            `📅 Updated: ${meta.updatedAt?.slice(0,10) || 'unknown'}`
         }, { quoted: msg });
       } catch (e) {
-        await sock.sendMessage(jid, { text: `\u274c File read error: ${e.message}` }, { quoted: msg });
+        await sock.sendMessage(jid, { text: `❌ File error: ${e.message}` }, { quoted: msg });
       }
       return;
     }
 
-    // Env check
     if (!MARKS_TOKEN) {
       await sock.sendMessage(jid, {
-        text:
-          '\u274c *MARKS_TOKEN* Railway env mein set nahi hai!\n\n' +
-          'Railway Dashboard → Variables mein add karo:\n' +
-          '`MARKS_TOKEN = eyJhbGci...apna_token`\n' +
-          '`GITHUB_TOKEN = ghp_...apna_token`'
+        text: '❌ *MARKS_TOKEN* Railway env mein set nahi hai!\nRailway → Variables → MARKS_TOKEN add karo.'
       }, { quoted: msg });
       return;
     }
 
     await sock.sendMessage(jid, {
-      text:
-        '\ud83d\ude80 *Scraping shuru ho raha hai!*\n\n' +
-        '\u26a0\ufe0f Ye kaam mein _bahut time lagega_ (saare questions)\n' +
-        'Progress updates milte rahenge.\n\n' +
-        '_Please wait..._'
+      text: '🚀 *Scraping shuru!*\n\n⚠️ Bahut time lagega.\nProgress updates aate rahenge...'
     }, { quoted: msg });
 
     let lastUpdate = Date.now();
-    const progressMsgs = [];
-
-    // Progress sender (har 10 updates pe ek message)
+    const buf = [];
     const onProgress = async (text) => {
       console.log('[SCRAPE]', text);
-      progressMsgs.push(text);
-      if (progressMsgs.length >= 10 || Date.now() - lastUpdate > 30000) {
-        await sock.sendMessage(jid, { text: progressMsgs.join('\n') });
-        progressMsgs.length = 0;
+      buf.push(text);
+      if (buf.length >= 8 || Date.now() - lastUpdate > 20000) {
+        await sock.sendMessage(jid, { text: buf.join('\n') });
+        buf.length = 0;
         lastUpdate = Date.now();
       }
     };
 
     try {
       const questions = await scrapeAll(MARKS_TOKEN, onProgress);
-
       const output = {
         meta: {
           source: 'web.getmarks.app',
-          total:  questions.length,
+          total: questions.length,
           updatedAt: new Date().toISOString(),
           subjects: {
-            P: questions.filter(q => q.subject === 'P').length,
-            C: questions.filter(q => q.subject === 'C').length,
-            M: questions.filter(q => q.subject === 'M').length,
+            P: questions.filter(q => q.subject==='P').length,
+            C: questions.filter(q => q.subject==='C').length,
+            M: questions.filter(q => q.subject==='M').length,
           }
         },
         questions
       };
-
       const jsonStr = JSON.stringify(output, null, 2);
-
-      // Local save
-      const savePath = path.join(__dirname, '../../quiz_data.json');
-      fs.writeFileSync(savePath, jsonStr, 'utf8');
-
-      // GitHub push
-      let pushed = false;
-      if (GITHUB_TOKEN) {
-        pushed = await pushToGithub(jsonStr);
-      }
+      fs.writeFileSync(path.join(__dirname, '../../quiz_data.json'), jsonStr, 'utf8');
+      const pushed = await pushToGithub(jsonStr);
 
       await sock.sendMessage(jid, {
         text:
-          `\u2705 *Scraping Complete!*\n\n` +
-          `\ud83d\udcca Total: *${questions.length}* questions\n` +
-          `\u2699\ufe0f Physics: ${output.meta.subjects.P}\n` +
-          `\u2699\ufe0f Chemistry: ${output.meta.subjects.C}\n` +
-          `\u2699\ufe0f Maths: ${output.meta.subjects.M}\n\n` +
-          `\ud83d\udcbe Local: quiz_data.json saved\n` +
-          `${pushed ? '\ud83d\ude80 GitHub: Successfully pushed!' : '\u26a0\ufe0f GitHub: Push failed (GITHUB_TOKEN check karo)'}\n\n` +
-          `_Bot restart karo agar naye questions load karne hain_`
+          `✅ *Done!*\n\n` +
+          `📊 Total: *${questions.length}*\n` +
+          `Physics: ${output.meta.subjects.P} | Chem: ${output.meta.subjects.C} | Maths: ${output.meta.subjects.M}\n\n` +
+          `💾 Local: Saved\n` +
+          `${pushed ? '🚀 GitHub: Pushed!' : '⚠️ GitHub: Skipped (no GITHUB_TOKEN)'}`
       }, { quoted: msg });
-
     } catch (e) {
-      await sock.sendMessage(jid, {
-        text: `\u274c Scraping failed: ${e.message}`
-      }, { quoted: msg });
+      await sock.sendMessage(jid, { text: `❌ Failed: ${e.message}` }, { quoted: msg });
     }
   }
 };

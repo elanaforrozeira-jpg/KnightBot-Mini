@@ -45,7 +45,7 @@ const quizQuestions = [
   { q: '🇮🇳 What is the currency of India?', options: ['Dollar', 'Pound', 'Rupee', 'Yen'], ans: 2, category: 'India' },
 ];
 
-const ANSWER_TIMEOUT = 30000; // 30 seconds per question
+const ANSWER_TIMEOUT = 30000;
 const LETTERS = ['A', 'B', 'C', 'D'];
 
 function getRandomQuestions(count = 10) {
@@ -85,6 +85,31 @@ function formatLeaderboard(scores, participants) {
   return text;
 }
 
+// Extract raw text from all possible WhatsApp message types
+function extractText(msg) {
+  const m = msg.message;
+  if (!m) return '';
+  // unwrap ephemeral
+  const inner = m.ephemeralMessage?.message || m.viewOnceMessageV2?.message || m;
+  return (
+    inner.conversation ||
+    inner.extendedTextMessage?.text ||
+    inner.imageMessage?.caption ||
+    inner.videoMessage?.caption ||
+    ''
+  );
+}
+
+// Strip @mentions, extra spaces, and get clean answer letter
+function parseAnswer(rawText) {
+  // Remove all @mentions like @918001234567
+  let clean = rawText.replace(/@\d+/g, '').trim();
+  // Remove punctuation and extra spaces, take first word
+  clean = clean.replace(/[^A-Za-z]/g, '').trim().toUpperCase();
+  // Only first character matters (A/B/C/D)
+  return clean.charAt(0);
+}
+
 module.exports = {
   name: 'quiz',
   aliases: ['trivia', 'quizstart'],
@@ -97,46 +122,39 @@ module.exports = {
     const sender = msg.key.participant || msg.key.remoteJid;
     const subCmd = args[0]?.toLowerCase() || 'start';
 
-    // --- LEADERBOARD ---
     if (subCmd === 'leaderboard' || subCmd === 'lb') {
       const scores = quizScores.get(jid);
       const session = activeQuizzes.get(jid);
-      const text = formatLeaderboard(scores, session?.participants);
-      await sock.sendMessage(jid, { text }, { quoted: msg });
+      await sock.sendMessage(jid, { text: formatLeaderboard(scores, session?.participants) }, { quoted: msg });
       return;
     }
 
-    // --- SCORE ---
     if (subCmd === 'score') {
       const scores = quizScores.get(jid);
       const myScore = scores?.[sender] || 0;
       const name = msg.pushName || sender.split('@')[0];
       await sock.sendMessage(jid, {
-        text: `📊 *${name}*, your score in this chat: *${myScore} pts* 🎯`
+        text: `📊 *${name}*, your score: *${myScore} pts* 🎯`
       }, { quoted: msg });
       return;
     }
 
-    // --- STOP ---
     if (subCmd === 'stop' || subCmd === 'end') {
       const session = activeQuizzes.get(jid);
       if (!session) {
-        await sock.sendMessage(jid, { text: '❌ No quiz is running in this chat!' }, { quoted: msg });
+        await sock.sendMessage(jid, { text: '❌ No quiz is running!' }, { quoted: msg });
         return;
       }
       clearTimeout(session.timeout);
       activeQuizzes.delete(jid);
       const scores = quizScores.get(jid);
-      let endText = `🛑 *Quiz stopped!*\n\n`;
-      endText += formatLeaderboard(scores, session.participants);
-      await sock.sendMessage(jid, { text: endText });
+      await sock.sendMessage(jid, { text: `🛑 *Quiz stopped!*\n\n` + formatLeaderboard(scores, session.participants) });
       return;
     }
 
-    // --- START ---
     if (activeQuizzes.has(jid)) {
       await sock.sendMessage(jid, {
-        text: '⚠️ A quiz is already running! Type *.quiz stop* to stop it or *.quiz leaderboard* to see scores.'
+        text: '⚠️ Quiz already running! Use *.quiz stop* to stop or *.quiz leaderboard* for scores.'
       }, { quoted: msg });
       return;
     }
@@ -150,15 +168,12 @@ module.exports = {
       answered: new Set(),
       timeout: null
     };
-
-    // Track participant names
     session.participants[sender] = msg.pushName || sender.split('@')[0];
-
     activeQuizzes.set(jid, session);
     if (!quizScores.has(jid)) quizScores.set(jid, {});
 
     await sock.sendMessage(jid, {
-      text: `🎮 *QUIZ STARTED!* 🎮\n\n📋 10 random questions from categories: GK, Science, Math, Tech, Sports, India!\n\n🏆 *Scoring:*\n  • ✅ Correct answer = *+10 pts*\n  • ❌ Wrong answer = *-2 pts*\n  • ⏱️ No answer = *0 pts*\n\n📝 Reply *A / B / C / D* for each question\n⏸️ Use *.quiz stop* to end | *.quiz score* for your score\n\n_Starting in 3 seconds..._`
+      text: `🎮 *QUIZ STARTED!* 🎮\n\n📋 10 random questions — GK, Science, Math, Tech, Sports, India!\n\n🏆 *Scoring:*\n  • ✅ Correct = *+10 pts*\n  • ❌ Wrong = *-2 pts*\n  • ⏱️ Timeout = *0 pts*\n\n📝 Reply *A / B / C / D*\n⏸️ *.quiz stop* to end | *.quiz score* for your score\n\n_Starting in 3 seconds..._`
     });
 
     setTimeout(() => sendNextQuestion(sock, jid), 3000);
@@ -170,50 +185,45 @@ async function sendNextQuestion(sock, jid) {
   if (!session) return;
 
   if (session.current >= session.questions.length) {
-    // Quiz finished
     activeQuizzes.delete(jid);
     const scores = quizScores.get(jid);
     let finalText = `🎉 *QUIZ COMPLETED!* 🎉\n\n`;
     finalText += formatLeaderboard(scores, session.participants);
-    finalText += `\n\n🔁 Start again with *.quiz start*`;
+    finalText += `\n\n🔁 Start again with *.quiz*`;
     await sock.sendMessage(jid, { text: finalText });
     return;
   }
 
   const qData = session.questions[session.current];
   session.answered.clear();
-  const qText = formatQuestion(qData, session.current, session.questions.length);
-  await sock.sendMessage(jid, { text: qText });
+  await sock.sendMessage(jid, { text: formatQuestion(qData, session.current, session.questions.length) });
 
-  // Auto-advance after timeout
   session.timeout = setTimeout(async () => {
     const currentSession = activeQuizzes.get(jid);
     if (!currentSession || currentSession.current !== session.current) return;
-
     const correctLetter = LETTERS[qData.ans];
     const correctOption = qData.options[qData.ans];
     await sock.sendMessage(jid, {
-      text: `⏱️ *Time's up!*\n\n✅ Correct answer: *${correctLetter}) ${correctOption}*\n\n_Next question loading..._`
+      text: `⏱️ *Time's up!*\n\n✅ Correct: *${correctLetter}) ${correctOption}*\n\n_Next question..._`
     });
-
     currentSession.current++;
     setTimeout(() => sendNextQuestion(sock, jid), 2000);
   }, ANSWER_TIMEOUT);
 }
 
-// Answer handler - call this from your main handler.js
+// ✅ Answer handler — called from handler.js for every non-command message
 module.exports.handleAnswer = async function(sock, msg) {
   const jid = msg.key.remoteJid;
   const sender = msg.key.participant || msg.key.remoteJid;
-  const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || '';
-  const answer = text.trim().toUpperCase();
-
-  if (!['A', 'B', 'C', 'D'].includes(answer)) return false;
 
   const session = activeQuizzes.get(jid);
   if (!session) return false;
 
-  // Prevent multiple answers from same user per question
+  const rawText = extractText(msg);
+  const answer = parseAnswer(rawText);
+
+  if (!['A', 'B', 'C', 'D'].includes(answer)) return false;
+
   if (session.answered.has(sender)) {
     await sock.sendMessage(jid, {
       text: `⚠️ @${sender.split('@')[0]}, you already answered this question!`,
@@ -224,7 +234,6 @@ module.exports.handleAnswer = async function(sock, msg) {
 
   session.answered.add(sender);
 
-  // Track participant name
   if (!session.participants[sender]) {
     session.participants[sender] = msg.pushName || sender.split('@')[0];
   }
@@ -236,7 +245,6 @@ module.exports.handleAnswer = async function(sock, msg) {
   const correctOption = qData.options[qData.ans];
   const name = session.participants[sender];
 
-  // Update scores
   const allScores = quizScores.get(jid);
   if (!allScores[sender]) allScores[sender] = 0;
   if (!session.scores[sender]) session.scores[sender] = 0;
@@ -245,11 +253,9 @@ module.exports.handleAnswer = async function(sock, msg) {
     allScores[sender] += 10;
     session.scores[sender] += 10;
     await sock.sendMessage(jid, {
-      text: `✅ *@${name}* got it right! *+10 pts* 🎯\n🏆 Total score: *${allScores[sender]} pts*`,
+      text: `✅ *@${name}* correct! *+10 pts* 🎯\n🏆 Total: *${allScores[sender]} pts*`,
       mentions: [sender]
     });
-
-    // Move to next question after correct answer
     clearTimeout(session.timeout);
     session.current++;
     setTimeout(() => sendNextQuestion(sock, jid), 2500);
@@ -257,7 +263,7 @@ module.exports.handleAnswer = async function(sock, msg) {
     allScores[sender] -= 2;
     session.scores[sender] -= 2;
     await sock.sendMessage(jid, {
-      text: `❌ *@${name}* Wrong! *-2 pts*\n✅ Correct was: *${correctLetter}) ${correctOption}*\n📊 Total score: *${allScores[sender]} pts*`,
+      text: `❌ *@${name}* wrong! *-2 pts*\n✅ Correct: *${correctLetter}) ${correctOption}*\n📊 Total: *${allScores[sender]} pts*`,
       mentions: [sender]
     });
   }

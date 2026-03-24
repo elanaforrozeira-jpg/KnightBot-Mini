@@ -651,6 +651,19 @@ const handleMessage = async (sock, msg) => {
     }
     
     body = (body || '').trim();
+
+    // ✅ QUIZ ANSWER HANDLER — intercept A/B/C/D before prefix check
+    if (!msg.key.fromMe) {
+      try {
+        const quizModule = require('./commands/fun/quiz');
+        if (typeof quizModule.handleAnswer === 'function') {
+          const handled = await quizModule.handleAnswer(sock, msg);
+          if (handled) return; // Quiz consumed this message, skip command processing
+        }
+      } catch (e) {
+        // Silently ignore if quiz module errors
+      }
+    }
     
     // Check antiall protection (owner only feature)
     if (isGroup) {

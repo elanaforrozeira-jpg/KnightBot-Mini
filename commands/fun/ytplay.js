@@ -1,52 +1,42 @@
 /**
  * 🎥 YTPLAY COMMAND
- * .ytplay <YouTube URL>
- * Downloads YT video (up to 50MB) and sends as video with audio to group
- * Students can watch lecture directly in WhatsApp
+ * .ytplay <YouTube URL or search query>
+ * Downloads YT video and sends as video with audio to group
  * Made by Ruhvaan
  */
 
-const ytdl = require('ytdl-core');
+const ytdl = require('@distube/ytdl-core');
 const ytSearch = require('yt-search');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const os = require('os');
 
-const MAX_BYTES = 50 * 1024 * 1024; // 50MB WhatsApp limit
+const MAX_BYTES = 50 * 1024 * 1024; // 50MB
 
 function isYtUrl(str) {
   return /youtu\.?be/.test(str);
 }
 
-function cleanTitle(title) {
-  return title.replace(/[^a-zA-Z0-9 ]/g, '').trim().slice(0, 40);
-}
-
 async function downloadYT(url, outPath) {
   return new Promise((resolve, reject) => {
-    // Try ffmpeg merge (video+audio) first
     const ffmpegPath = (() => { try { return require('ffmpeg-static'); } catch(e) { return 'ffmpeg'; } })();
-    const tmpVideo = outPath + '_video.mp4';
-    const tmpAudio = outPath + '_audio.mp4';
+    const tmpVideo = outPath + '_v.mp4';
+    const tmpAudio = outPath + '_a.mp4';
 
-    let videoStream = ytdl(url, { quality: 'highestvideo', filter: 'videoonly' });
-    let audioStream = ytdl(url, { quality: 'highestaudio', filter: 'audioonly' });
+    const videoStream = ytdl(url, { quality: 'highestvideo', filter: 'videoonly' });
+    const audioStream = ytdl(url, { quality: 'highestaudio', filter: 'audioonly' });
 
     const videoFile = fs.createWriteStream(tmpVideo);
     const audioFile = fs.createWriteStream(tmpAudio);
 
-    let videoSize = 0;
-    let aborted = false;
-
+    let videoSize = 0, aborted = false;
     videoStream.on('data', chunk => {
       videoSize += chunk.length;
       if (videoSize > MAX_BYTES * 1.5 && !aborted) {
         aborted = true;
         videoStream.destroy();
         audioStream.destroy();
-        videoFile.close();
-        audioFile.close();
         reject(new Error('VIDEO_TOO_LARGE'));
       }
     });
@@ -54,23 +44,21 @@ async function downloadYT(url, outPath) {
     videoStream.pipe(videoFile);
     audioStream.pipe(audioFile);
 
-    let videoDone = false, audioDone = false;
+    let vDone = false, aDone = false;
     const tryMerge = () => {
-      if (!videoDone || !audioDone) return;
-      if (aborted) return;
+      if (!vDone || !aDone || aborted) return;
       exec(
         `"${ffmpegPath}" -i "${tmpVideo}" -i "${tmpAudio}" -c:v copy -c:a aac -shortest "${outPath}" -y`,
         (err) => {
           try { fs.unlinkSync(tmpVideo); } catch(_) {}
           try { fs.unlinkSync(tmpAudio); } catch(_) {}
-          if (err) reject(err);
-          else resolve(outPath);
+          if (err) reject(err); else resolve(outPath);
         }
       );
     };
 
-    videoFile.on('finish', () => { videoDone = true; tryMerge(); });
-    audioFile.on('finish', () => { audioDone = true; tryMerge(); });
+    videoFile.on('finish', () => { vDone = true; tryMerge(); });
+    audioFile.on('finish', () => { aDone = true; tryMerge(); });
     videoStream.on('error', reject);
     audioStream.on('error', reject);
   });
@@ -86,7 +74,9 @@ module.exports = {
   async execute(sock, msg, args) {
     const jid = msg.key.remoteJid;
     if (!args.length) {
-      await sock.sendMessage(jid, { text: '❌ Usage: *.ytplay <YouTube URL or search terms>*\nExample: `.ytplay https://youtu.be/xxxx`' }, { quoted: msg });
+      await sock.sendMessage(jid, {
+        text: '❌ Usage: *.ytplay <YouTube URL or search terms>*\nExample: `.ytplay https://youtu.be/xxxx`'
+      }, { quoted: msg });
       return;
     }
 
@@ -99,32 +89,31 @@ module.exports = {
     try {
       if (isYtUrl(input)) {
         url = input;
-        videoInfo = await ytdl.getInfo(url);
       } else {
-        // Search
         const results = await ytSearch(input);
         const video = results.videos?.[0];
         if (!video) {
-          await sock.sendMessage(jid, { text: '❌ No results found!' }, { quoted: msg });
+          await sock.sendMessage(jid, { text: '❌ No results found for: ' + input }, { quoted: msg });
           return;
         }
         url = video.url;
-        videoInfo = await ytdl.getInfo(url);
       }
+      videoInfo = await ytdl.getInfo(url);
     } catch (e) {
-      await sock.sendMessage(jid, { text: `❌ Error fetching video: ${e.message}` }, { quoted: msg });
+      await sock.sendMessage(jid, { text: `❌ Error: ${e.message}` }, { quoted: msg });
       return;
     }
 
     const title = videoInfo.videoDetails.title;
-    const duration = videoInfo.videoDetails.lengthSeconds;
+    const duration = parseInt(videoInfo.videoDetails.lengthSeconds);
     const channel = videoInfo.videoDetails.ownerChannelName;
-    const thumb = videoInfo.videoDetails.thumbnails?.slice(-1)[0]?.url || '';
 
-    // Block very long videos (>20 min)
-    if (parseInt(duration) > 1200) {
+    if (duration > 1200) {
       await sock.sendMessage(jid, {
-        text: `❌ Video bahut lamba hai! (${Math.floor(duration/60)} min)\n⚠️ Max 20 minutes allowed.\n\n📌 Link share karo manually: ${url}`
+        text:
+          `❌ Video bahut lamba hai! (${Math.floor(duration/60)} min)\n` +
+          `⚠️ Max 20 minutes allowed.\n\n` +
+          `📌 Link manually share karo:\n${url}`
       }, { quoted: msg });
       return;
     }
@@ -132,9 +121,8 @@ module.exports = {
     await sock.sendMessage(jid, {
       text:
         `🎥 *${title}*\n` +
-        `📺 Channel: ${channel}\n` +
-        `⏱️ Duration: ${Math.floor(duration/60)}m ${duration%60}s\n\n` +
-        `⏬ _Downloading... please wait_`
+        `📺 ${channel} | ⏱️ ${Math.floor(duration/60)}m ${duration%60}s\n\n` +
+        `⏬ _Downloading... please wait (may take 1-2 min)_`
     });
 
     const tmpDir = os.tmpdir();
@@ -147,20 +135,19 @@ module.exports = {
       if (stat.size > MAX_BYTES) {
         fs.unlinkSync(outPath);
         await sock.sendMessage(jid, {
-          text: `❌ Video too large to send (${(stat.size/1024/1024).toFixed(1)}MB > 50MB)\n📌 Direct link: ${url}`
+          text: `❌ File too large (${(stat.size/1024/1024).toFixed(1)}MB > 50MB)\n📌 Link: ${url}`
         }, { quoted: msg });
         return;
       }
 
       const videoBuffer = fs.readFileSync(outPath);
-      fs.unlinkSync(outPath);
+      try { fs.unlinkSync(outPath); } catch(_) {}
 
       await sock.sendMessage(jid, {
         video: videoBuffer,
         caption:
           `🎥 *${title}*\n` +
-          `📺 ${channel}\n` +
-          `⏱️ ${Math.floor(duration/60)}m ${duration%60}s\n\n` +
+          `📺 ${channel} | ⏱️ ${Math.floor(duration/60)}m ${duration%60}s\n\n` +
           `_made by Ruhvaan_`,
         mimetype: 'video/mp4'
       });
@@ -169,11 +156,11 @@ module.exports = {
       try { if (fs.existsSync(outPath)) fs.unlinkSync(outPath); } catch(_) {}
       if (e.message === 'VIDEO_TOO_LARGE') {
         await sock.sendMessage(jid, {
-          text: `❌ Video too large to download!\n📌 Direct link share karo: ${url}`
+          text: `❌ Video too large!\n📌 Link: ${url}`
         }, { quoted: msg });
       } else {
         await sock.sendMessage(jid, {
-          text: `❌ Download failed: ${e.message}\n📌 Direct link: ${url}`
+          text: `❌ Download failed: ${e.message}\n📌 Link: ${url}`
         }, { quoted: msg });
       }
     }

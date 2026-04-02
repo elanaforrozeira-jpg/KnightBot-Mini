@@ -1,6 +1,6 @@
 /**
- * Video Downloader - Download video from YouTube
- * Uses multi-API fallback chain via utils/api.js
+ * Video Downloader - YouTube video download
+ * Caption branded: Provided by Ruhvaan
  */
 
 const yts = require('yt-search');
@@ -34,7 +34,6 @@ module.exports = {
           return await sock.sendMessage(chatId, { text: '❌ No results found.' }, { quoted: msg });
         }
         video = search.videos[0];
-        // Block videos > 10 min to avoid huge files
         if (video.seconds && video.seconds > 600) {
           return await sock.sendMessage(chatId, {
             text: `❌ Video is too long (${video.timestamp}). Max 10 minutes allowed.`
@@ -75,11 +74,17 @@ module.exports = {
       if (!videoBuffer || videoBuffer.length === 0) throw new Error('Video buffer is empty');
 
       const title = (videoData.title || video.title || 'video').replace(/[^\w\s\-]/g, '').trim();
+
+      // ── Branded caption ──────────────────────────────────────────────────
+      const caption =
+        `🎬 *${title}*\n\n` +
+        `🟥🟧🟨🟩🟦🟪🩷 *Provided by Ruhvaan* 🩷🟪🟦🟩🟨🟧🟥`;
+
       await sock.sendMessage(chatId, {
         video: videoBuffer,
         mimetype: 'video/mp4',
         fileName: `${title}.mp4`,
-        caption: `🎬 *${title}*\n\n> Powered by KnightBot`
+        caption
       }, { quoted: msg });
       await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
 

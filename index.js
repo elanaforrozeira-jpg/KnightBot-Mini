@@ -49,12 +49,16 @@ const path = require('path');
 const zlib = require('zlib');
 const os = require('os');
 
-// ── reconnect state ─────────────────────────────────────────────────────────
+// ── reconnect state ──────────────────────────────────────────────────────────
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 
+// ── SESSION WRITE GUARD ──────────────────────────────────────────────────────
+// Sirf pehli baar (process start pe) session write hogi.
+// Reconnect pe creds.json dobara OVERWRITE NAHI hogi — yahi 440 loop ka root cause tha.
+let sessionWrittenOnce = false;
+
 const getReconnectDelay = (attempt) => {
-  // exponential backoff: 3s, 6s, 12s, 24s … capped at 60s
   return Math.min(3000 * Math.pow(2, attempt), 60000);
 };
 
@@ -129,19 +133,25 @@ async function startBot() {
   const sessionFolder = `./${config.sessionName}`;
   const sessionFile = path.join(sessionFolder, 'creds.json');
 
-  if (config.sessionID && config.sessionID.startsWith('KnightBot!')) {
+  // ── Write session ONLY on first boot ─────────────────────────────────────────────
+  // Reconnect ke waqt sessionWrittenOnce = true hoga, toh overwrite nahi hogi.
+  // Is wajah se har reconnect pe WhatsApp ko naya session nazar nahi aayega (440 fix).
+  if (!sessionWrittenOnce && config.sessionID && config.sessionID.startsWith('KnightBot!')) {
     try {
       const [header, b64data] = config.sessionID.split('!');
-      if (header !== 'KnightBot' || !b64data) throw new Error("Invalid session format");
+      if (header !== 'KnightBot' || !b64data) throw new Error('Invalid session format');
       const cleanB64 = b64data.replace('...', '');
       const compressedData = Buffer.from(cleanB64, 'base64');
       const decompressedData = zlib.gunzipSync(compressedData);
       if (!fs.existsSync(sessionFolder)) fs.mkdirSync(sessionFolder, { recursive: true });
       fs.writeFileSync(sessionFile, decompressedData, 'utf8');
-      console.log('📡 Session : 🔑 Retrieved from KnightBot Session');
+      sessionWrittenOnce = true;
+      console.log('📡 Session : 🔑 Retrieved from KnightBot Session (first boot only)');
     } catch (e) {
       console.error('📡 Session : ❌ Error processing KnightBot session:', e.message);
     }
+  } else if (sessionWrittenOnce) {
+    console.log('📡 Session : ✅ Using existing creds (reconnect — skipping overwrite)');
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
@@ -195,48 +205,43 @@ async function startBot() {
       const statusCode   = lastDisconnect?.error?.output?.statusCode;
       const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
 
-      // ── 440 Stream Conflict: another WhatsApp Web session is open ──────────
+      // ── 440 Stream Conflict ───────────────────────────────────────────────
       if (statusCode === 440) {
         reconnectAttempts++;
         const delay = getReconnectDelay(reconnectAttempts);
-        console.log(`⚠️ Stream Conflict (440) — another session detected!`);
-        console.log(`   Make sure no other WhatsApp Web / bot instance is using this number.`);
-        console.log(`   Reconnect attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay / 1000}s...`);
-
+        console.log(`⚠️ Stream Conflict (440) — attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay / 1000}s...`);
         if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-          console.error('❌ Too many Stream Conflicts. Exiting so Railway can restart fresh.');
+          console.error('❌ Max Stream Conflicts reached. Exiting for fresh Railway restart.');
           process.exit(1);
         }
         setTimeout(() => startBot(), delay);
         return;
       }
 
-      // ── Logged out — DO NOT reconnect, need fresh QR ─────────────────────
+      // ── Logged out ───────────────────────────────────────────────────────────
       if (statusCode === DisconnectReason.loggedOut) {
-        console.log('🔴 Logged out. Please scan QR again.');
+        console.log('🔴 Logged out. Please update SESSION_ID and redeploy.');
         process.exit(1);
         return;
       }
 
-      // ── 515 / 503 / 408 — transient WA server errors ──────────────────────
+      // ── WA server errors ───────────────────────────────────────────────────
       if (statusCode === 515 || statusCode === 503 || statusCode === 408) {
         reconnectAttempts++;
         const delay = getReconnectDelay(reconnectAttempts);
-        console.log(`⚠️ WA server error (${statusCode}). Reconnecting in ${delay / 1000}s... (attempt ${reconnectAttempts})`);
+        console.log(`⚠️ WA server error (${statusCode}). Reconnecting in ${delay / 1000}s...`);
         setTimeout(() => startBot(), delay);
         return;
       }
 
-      // ── Generic close — normal reconnect ──────────────────────────────────
+      // ── Generic close ──────────────────────────────────────────────────────
       reconnectAttempts++;
       const delay = getReconnectDelay(reconnectAttempts);
-      console.log(`Connection closed: ${errorMessage} | Reconnecting in ${delay / 1000}s... (attempt ${reconnectAttempts})`);
+      console.log(`Connection closed: ${errorMessage} | Reconnecting in ${delay / 1000}s...`);
       setTimeout(() => startBot(), delay);
 
     } else if (connection === 'open') {
-      // ── Connected! Reset attempt counter ──────────────────────────────────
       reconnectAttempts = 0;
-
       console.log('\n✅ Bot connected successfully!');
       console.log(`📱 Bot Number: ${sock.user.id.split(':')[0]}`);
       console.log(`🤖 Bot Name: ${config.botName}`);

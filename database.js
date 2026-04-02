@@ -11,6 +11,7 @@ const GROUPS_DB = path.join(DB_PATH, 'groups.json');
 const USERS_DB = path.join(DB_PATH, 'users.json');
 const WARNINGS_DB = path.join(DB_PATH, 'warnings.json');
 const MODS_DB = path.join(DB_PATH, 'mods.json');
+const WHITELIST_DB = path.join(DB_PATH, 'whitelist.json');
 
 // Initialize database directory
 if (!fs.existsSync(DB_PATH)) {
@@ -28,6 +29,7 @@ initDB(GROUPS_DB, {});
 initDB(USERS_DB, {});
 initDB(WARNINGS_DB, {});
 initDB(MODS_DB, { moderators: [] });
+initDB(WHITELIST_DB, { users: [], groups: [] });
 
 // Read database
 const readDB = (filePath) => {
@@ -162,6 +164,73 @@ const isModerator = (userId) => {
   return mods.includes(userId);
 };
 
+// ─── Whitelist System ───────────────────────────────────────────────────────
+
+// USER whitelist (global — whitelisted users bypass antilink/antispam etc.)
+const getWhitelistedUsers = () => {
+  const wl = readDB(WHITELIST_DB);
+  return wl.users || [];
+};
+
+const addWhitelistUser = (userId) => {
+  const wl = readDB(WHITELIST_DB);
+  if (!wl.users) wl.users = [];
+  const num = userId.split('@')[0];
+  if (!wl.users.includes(num)) {
+    wl.users.push(num);
+    return writeDB(WHITELIST_DB, wl);
+  }
+  return false; // already exists
+};
+
+const removeWhitelistUser = (userId) => {
+  const wl = readDB(WHITELIST_DB);
+  if (!wl.users) return false;
+  const num = userId.split('@')[0];
+  const before = wl.users.length;
+  wl.users = wl.users.filter(u => u !== num);
+  if (wl.users.length < before) {
+    return writeDB(WHITELIST_DB, wl);
+  }
+  return false; // not found
+};
+
+const isWhitelisted = (userId) => {
+  const num = userId.split('@')[0].split(':')[0];
+  return getWhitelistedUsers().includes(num);
+};
+
+// GROUP whitelist (only these groups can use the bot when groupWhitelistMode is on)
+const getWhitelistedGroups = () => {
+  const wl = readDB(WHITELIST_DB);
+  return wl.groups || [];
+};
+
+const addWhitelistGroup = (groupId) => {
+  const wl = readDB(WHITELIST_DB);
+  if (!wl.groups) wl.groups = [];
+  if (!wl.groups.includes(groupId)) {
+    wl.groups.push(groupId);
+    return writeDB(WHITELIST_DB, wl);
+  }
+  return false;
+};
+
+const removeWhitelistGroup = (groupId) => {
+  const wl = readDB(WHITELIST_DB);
+  if (!wl.groups) return false;
+  const before = wl.groups.length;
+  wl.groups = wl.groups.filter(g => g !== groupId);
+  if (wl.groups.length < before) {
+    return writeDB(WHITELIST_DB, wl);
+  }
+  return false;
+};
+
+const isGroupWhitelisted = (groupId) => {
+  return getWhitelistedGroups().includes(groupId);
+};
+
 module.exports = {
   getGroupSettings,
   updateGroupSettings,
@@ -174,5 +243,14 @@ module.exports = {
   getModerators,
   addModerator,
   removeModerator,
-  isModerator
+  isModerator,
+  // Whitelist
+  getWhitelistedUsers,
+  addWhitelistUser,
+  removeWhitelistUser,
+  isWhitelisted,
+  getWhitelistedGroups,
+  addWhitelistGroup,
+  removeWhitelistGroup,
+  isGroupWhitelisted
 };

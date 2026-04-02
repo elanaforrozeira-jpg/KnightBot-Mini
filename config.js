@@ -27,6 +27,11 @@ module.exports = {
     autoReact: false,
     autoReactMode: 'bot', // set bot or all via cmd
     autoDownload: false,
+
+    // Whitelist / Access Control
+    // groupWhitelistMode: true  → bot sirf whitelisted groups mein kaam karega
+    // groupWhitelistMode: false → bot sab groups mein kaam karega (default)
+    groupWhitelistMode: false,
     
     // Group Settings Defaults
     defaultGroupSettings: {
@@ -88,4 +93,3 @@ module.exports = {
       youtube: 'http://youtube.com/@mr_unique_hacker'
     }
 };
-  

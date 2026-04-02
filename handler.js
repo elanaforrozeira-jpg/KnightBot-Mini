@@ -409,6 +409,22 @@ const handleMessage = async (sock, msg) => {
     if (isSystemJid(from)) {
       return; // Silently ignore system messages
     }
+
+    // ── Group Whitelist Mode ────────────────────────────────────────────────
+    // If enabled in config, bot only works in whitelisted groups
+    const isGroup = from.endsWith('@g.us');
+    if (isGroup && config.groupWhitelistMode) {
+      const ownerSending = (() => {
+        const sender = msg.key.fromMe
+          ? sock.user?.id
+          : msg.key.participant || from;
+        return isOwner(sender);
+      })();
+      if (!ownerSending && !database.isGroupWhitelisted(from)) {
+        return; // Silently ignore non-whitelisted groups
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
     
     // Auto-React System
     try {
@@ -461,7 +477,6 @@ const handleMessage = async (sock, msg) => {
     const messageType = actualMessageTypes[0];
     
     const sender = msg.key.fromMe ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : msg.key.participant || msg.key.remoteJid;
-    const isGroup = from.endsWith('@g.us');
     
     const groupMetadata = isGroup ? await getGroupMetadata(sock, from) : null;
     
@@ -834,6 +849,9 @@ const handleMessage = async (sock, msg) => {
     if (config.selfMode && !isOwner(sender)) {
       return;
     }
+
+    // ── User Whitelist check (antilink/antispam bypass passed to context) ──
+    const senderIsWhitelisted = database.isWhitelisted(sender);
     
     // Permission checks
     if (command.ownerOnly && !isOwner(sender)) {
@@ -877,6 +895,7 @@ const handleMessage = async (sock, msg) => {
       isAdmin: await isAdmin(sock, sender, from, groupMetadata),
       isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
       isMod: isMod(sender),
+      isWhitelisted: senderIsWhitelisted,
       reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
       react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
     });
@@ -1096,6 +1115,9 @@ const handleAntilink = async (sock, msg, groupMetadata) => {
     const groupSettings = database.getGroupSettings(from);
     if (!groupSettings.antilink) return;
     
+    // Whitelisted users bypass antilink
+    if (database.isWhitelisted(sender)) return;
+
     const body = msg.message?.conversation || 
                   msg.message?.extendedTextMessage?.text || 
                   msg.message?.imageMessage?.caption || 

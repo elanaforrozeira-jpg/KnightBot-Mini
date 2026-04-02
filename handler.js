@@ -479,6 +479,11 @@ const handleMessage = async (sock, msg) => {
     const sender = msg.key.fromMe ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : msg.key.participant || msg.key.remoteJid;
     
     const groupMetadata = isGroup ? await getGroupMetadata(sock, from) : null;
+
+    // ── Whitelist bypass flag (used by antilink, antitag, antispam, slowmode) ──
+    const senderIsWhitelisted = database.isWhitelisted(sender);
+    const senderIsOwnerFlag   = isOwner(sender);
+    // ──────────────────────────────────────────────────────────────────────────
     
     // Anti-group mention protection
     if (isGroup) {
@@ -497,15 +502,26 @@ const handleMessage = async (sock, msg) => {
     // Return early for non-group messages with no recognizable content
     if (!content || actualMessageTypes.length === 0) return;
     
+    // ── Antilink (run before command parsing so links are caught even without prefix) ──
+    if (isGroup && !msg.key.fromMe) {
+      try {
+        await handleAntilink(sock, msg, groupMetadata);
+      } catch (error) {
+        console.error('Error in antilink handler:', error);
+      }
+    }
+    // ──────────────────────────────────────────────────────────────────────────────────
+
     // Slow mode check
    if (isGroup && !msg.key.fromMe) {
   try {
     const groupSettings = database.getGroupSettings(from);
     if (groupSettings.slowmode) {
      const senderIsGroupOwner = groupMetadata?.owner && (groupMetadata.owner === sender);
- const senderIsBotOwner = isOwner(sender);
- const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
- if (!senderIsGroupOwner && !senderIsBotOwner && !senderIsAdmin) {
+const senderIsBotOwner = isOwner(sender);
+const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
+// ── Whitelisted users bypass slow mode ──────────────────────────────
+if (!senderIsGroupOwner && !senderIsBotOwner && !senderIsAdmin && !senderIsWhitelisted) {
         const cooldownMs = (groupSettings.slowmodeCooldown || 30) * 1000;
         const result = checkSlowMode(from, sender, cooldownMs);
         if (result.onCooldown) {
@@ -658,9 +674,9 @@ const handleMessage = async (sock, msg) => {
       const groupSettings = database.getGroupSettings(from);
       if (groupSettings.antiall) {
         const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
-        const senderIsOwner = isOwner(sender);
         
-        if (!senderIsAdmin && !senderIsOwner) {
+        // ── Whitelisted users and owners bypass antiall ──────────────────────
+        if (!senderIsAdmin && !senderIsOwnerFlag && !senderIsWhitelisted) {
           const botIsAdmin = await isBotAdmin(sock, from, groupMetadata);
           if (botIsAdmin) {
             await sock.sendMessage(from, { delete: msg.key });
@@ -703,9 +719,9 @@ const handleMessage = async (sock, msg) => {
             
             if (totalMentions >= mentionThreshold || hasManyNumericMentions) {
               const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
-              const senderIsOwner = isOwner(sender);
               
-              if (!senderIsAdmin && !senderIsOwner) {
+              // ── Whitelisted users and owners bypass antitag ──────────────────
+              if (!senderIsAdmin && !senderIsOwnerFlag && !senderIsWhitelisted) {
                 const action = (groupSettings.antitagAction || 'delete').toLowerCase();
                 
                 if (action === 'delete') {
@@ -850,9 +866,6 @@ const handleMessage = async (sock, msg) => {
       return;
     }
 
-    // ── User Whitelist check (antilink/antispam bypass passed to context) ──
-    const senderIsWhitelisted = database.isWhitelisted(sender);
-    
     // Permission checks
     if (command.ownerOnly && !isOwner(sender)) {
       return sock.sendMessage(from, { text: config.messages.ownerOnly }, { quoted: msg });

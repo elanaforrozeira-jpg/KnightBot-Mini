@@ -1,6 +1,8 @@
 /**
  * Funny Commands Pack
- * roast, compliment, pickup, fact, horoscope, would_you_rather, 8ball
+ * roast, compliment, pickup, fact, horoscope, wyr, 8ball, joke, random, coinflip
+ *
+ * NOTE: All execute() use (sock, msg, args, ctx) — ctx has { from, sender, reply }
  */
 
 const roasts = [
@@ -56,22 +58,22 @@ const facts = [
   'The inventor of Pringles is buried in a Pringles can. 🥫',
   'A shrimp\'s heart is in its head. 🦐',
   'Humans share 50% of their DNA with bananas. 🍌',
-  'There are more possible iterations of a game of chess than there are atoms in the observable universe. ♟️',
+  'There are more possible iterations of a game of chess than atoms in the observable universe. ♟️',
 ];
 
 const horoscopes = [
-  { sign: 'Aries',       msg: 'Today is your day to take bold risks! 🐏🔥' },
-  { sign: 'Taurus',      msg: 'Slow down and enjoy the simple pleasures today. 🐂🌿' },
-  { sign: 'Gemini',      msg: 'Your social charm is at its peak — use it wisely! 👯✨' },
-  { sign: 'Cancer',      msg: 'Trust your intuition; it will not lead you astray. 🦀🌊' },
-  { sign: 'Leo',         msg: 'The spotlight is yours — shine bright! 🦁👑' },
-  { sign: 'Virgo',       msg: 'Details matter today; double-check everything. 🌾🔍' },
-  { sign: 'Libra',       msg: 'Balance and harmony are key themes for you. ⚖️🕊️' },
-  { sign: 'Scorpio',     msg: 'Your instincts are razor-sharp. Trust them. 🦂🔮' },
-  { sign: 'Sagittarius', msg: 'An adventure awaits — say yes to opportunities! 🏹🌍' },
-  { sign: 'Capricorn',   msg: 'Hard work pays off today. Stay the course. 🐐⛰️' },
-  { sign: 'Aquarius',    msg: 'Think outside the box — your ideas are brilliant! 🏺💡' },
-  { sign: 'Pisces',      msg: 'Your creativity is flowing. Express yourself freely. 🐟🎨' },
+  { sign: 'aries',       msg: 'Today is your day to take bold risks! 🐏🔥' },
+  { sign: 'taurus',      msg: 'Slow down and enjoy the simple pleasures today. 🐂🌿' },
+  { sign: 'gemini',      msg: 'Your social charm is at its peak — use it wisely! 👯✨' },
+  { sign: 'cancer',      msg: 'Trust your intuition; it will not lead you astray. 🦀🌊' },
+  { sign: 'leo',         msg: 'The spotlight is yours — shine bright! 🦁👑' },
+  { sign: 'virgo',       msg: 'Details matter today; double-check everything. 🌾🔍' },
+  { sign: 'libra',       msg: 'Balance and harmony are key themes for you. ⚖️🕊️' },
+  { sign: 'scorpio',     msg: 'Your instincts are razor-sharp. Trust them. 🦂🔮' },
+  { sign: 'sagittarius', msg: 'An adventure awaits — say yes to opportunities! 🏹🌍' },
+  { sign: 'capricorn',   msg: 'Hard work pays off today. Stay the course. 🐐⛰️' },
+  { sign: 'aquarius',    msg: 'Think outside the box — your ideas are brilliant! 🏺💡' },
+  { sign: 'pisces',      msg: 'Your creativity is flowing. Express yourself freely. 🐟🎨' },
 ];
 
 const wyrQuestions = [
@@ -117,9 +119,13 @@ module.exports = [
     category: 'fun',
     description: 'Roast someone (or yourself)',
     usage: '.roast [@user]',
-    async execute(sock, msg, args, { from, sender }) {
-      const ctx = msg.message?.extendedTextMessage?.contextInfo;
-      const mentioned = (ctx?.mentionedJid || [])[0];
+    async execute(sock, msg, args, ctx) {
+      const from   = ctx.from;
+      const sender = ctx.sender;
+      const reply  = ctx.reply;
+      const content = msg.message?.extendedTextMessage || msg.message?.conversation;
+      const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+      const mentioned = (contextInfo?.mentionedJid || [])[0];
       const target = mentioned || sender;
       const num = target.split('@')[0];
       const roast = roasts[Math.floor(Math.random() * roasts.length)];
@@ -137,9 +143,11 @@ module.exports = [
     category: 'fun',
     description: 'Give someone a compliment',
     usage: '.compliment [@user]',
-    async execute(sock, msg, args, { from, sender }) {
-      const ctx = msg.message?.extendedTextMessage?.contextInfo;
-      const mentioned = (ctx?.mentionedJid || [])[0];
+    async execute(sock, msg, args, ctx) {
+      const from   = ctx.from;
+      const sender = ctx.sender;
+      const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+      const mentioned = (contextInfo?.mentionedJid || [])[0];
       const target = mentioned || sender;
       const num = target.split('@')[0];
       const comp = compliments[Math.floor(Math.random() * compliments.length)];
@@ -157,9 +165,9 @@ module.exports = [
     category: 'fun',
     description: 'Random pickup line',
     usage: '.pickup',
-    async execute(sock, msg, args, { from, reply }) {
+    async execute(sock, msg, args, ctx) {
       const line = pickupLines[Math.floor(Math.random() * pickupLines.length)];
-      await reply(`😏 *Pickup Line*\n\n${line}`);
+      await ctx.reply(`😏 *Pickup Line*\n\n${line}`);
     }
   },
 
@@ -170,9 +178,9 @@ module.exports = [
     category: 'fun',
     description: 'Random fun fact',
     usage: '.fact',
-    async execute(sock, msg, args, { reply }) {
+    async execute(sock, msg, args, ctx) {
       const f = facts[Math.floor(Math.random() * facts.length)];
-      await reply(`🧠 *Fun Fact*\n\n${f}`);
+      await ctx.reply(`🧠 *Fun Fact*\n\n${f}`);
     }
   },
 
@@ -183,27 +191,27 @@ module.exports = [
     category: 'fun',
     description: 'Daily horoscope for your zodiac sign',
     usage: '.horoscope <sign>  (e.g. .horoscope leo)',
-    async execute(sock, msg, args, { reply }) {
-      const input = (args[0] || '').toLowerCase();
-      const match = horoscopes.find(h => h.sign.toLowerCase() === input);
+    async execute(sock, msg, args, ctx) {
+      const input = (args[0] || '').toLowerCase().trim();
+      const match = horoscopes.find(h => h.sign === input);
       if (!match) {
-        const signs = horoscopes.map(h => h.sign).join(', ');
-        return reply(`♈ *Zodiac Signs:*\n${signs}\n\nUsage: .horoscope <sign>`);
+        const signs = horoscopes.map(h => h.sign.charAt(0).toUpperCase() + h.sign.slice(1)).join(', ');
+        return ctx.reply(`♈ *Zodiac Signs:*\n${signs}\n\nUsage: .horoscope leo`);
       }
-      await reply(`${match.msg}\n\n> Your daily reading for *${match.sign}*`);
+      await ctx.reply(`${match.msg}\n\n> Your daily reading for *${match.sign.charAt(0).toUpperCase() + match.sign.slice(1)}*`);
     }
   },
 
   // 🤔 WOULD YOU RATHER
   {
     name: 'wyr',
-    aliases: ['wouldyourather', 'wyq'],
+    aliases: ['wouldyourather'],
     category: 'fun',
     description: 'Would You Rather question',
     usage: '.wyr',
-    async execute(sock, msg, args, { reply }) {
+    async execute(sock, msg, args, ctx) {
       const q = wyrQuestions[Math.floor(Math.random() * wyrQuestions.length)];
-      await reply(`🤔 *Would You Rather?*\n\n${q}`);
+      await ctx.reply(`🤔 *Would You Rather?*\n\n${q}`);
     }
   },
 
@@ -214,11 +222,11 @@ module.exports = [
     category: 'fun',
     description: 'Ask the magic 8-ball a question',
     usage: '.8ball <question>',
-    async execute(sock, msg, args, { reply }) {
+    async execute(sock, msg, args, ctx) {
       const question = args.join(' ').trim();
-      if (!question) return reply('🎱 Ask me a question!\nUsage: .8ball Will I pass my exam?');
+      if (!question) return ctx.reply('🎱 Ask me a question!\nUsage: .8ball Will I pass my exam?');
       const ans = eightBallResponses[Math.floor(Math.random() * eightBallResponses.length)];
-      await reply(`🎱 *Magic 8-Ball*\n\n❓ ${question}\n\n🔮 ${ans}`);
+      await ctx.reply(`🎱 *Magic 8-Ball*\n\n❓ ${question}\n\n🔮 ${ans}`);
     }
   },
 
@@ -229,7 +237,8 @@ module.exports = [
     category: 'fun',
     description: 'Random joke',
     usage: '.joke',
-    async execute(sock, msg, args, { from, reply }) {
+    async execute(sock, msg, args, ctx) {
+      const from = ctx.from;
       const jokes = [
         { q: 'Why do programmers prefer dark mode?', a: 'Because light attracts bugs! 🐛' },
         { q: 'Why did the computer go to the doctor?', a: 'Because it had a virus! 💊' },
@@ -254,7 +263,7 @@ module.exports = [
     category: 'fun',
     description: 'Roll a dice or pick a random number',
     usage: '.random [max]  or  .random [min] [max]',
-    async execute(sock, msg, args, { reply }) {
+    async execute(sock, msg, args, ctx) {
       let min = 1, max = 6;
       if (args.length === 1) { max = parseInt(args[0]) || 6; }
       else if (args.length >= 2) { min = parseInt(args[0]) || 1; max = parseInt(args[1]) || 6; }
@@ -262,7 +271,7 @@ module.exports = [
       const result = Math.floor(Math.random() * (max - min + 1)) + min;
       const faces = ['⚀','⚁','⚂','⚃','⚄','⚅'];
       const face = (result >= 1 && result <= 6) ? faces[result - 1] : '🎲';
-      await reply(`${face} *Rolled: ${result}*\n\nRange: ${min} — ${max}`);
+      await ctx.reply(`${face} *Rolled: ${result}*\nRange: ${min} — ${max}`);
     }
   },
 
@@ -273,9 +282,9 @@ module.exports = [
     category: 'fun',
     description: 'Flip a coin',
     usage: '.coinflip',
-    async execute(sock, msg, args, { reply }) {
+    async execute(sock, msg, args, ctx) {
       const result = Math.random() < 0.5 ? 'Heads 🪙' : 'Tails 🔵';
-      await reply(`🪙 *Coin Flip Result:*\n\n**${result}**`);
+      await ctx.reply(`🪙 *Coin Flip!*\n\n*${result}*`);
     }
   },
 ];

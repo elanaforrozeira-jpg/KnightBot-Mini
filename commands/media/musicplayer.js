@@ -1,160 +1,171 @@
 /**
- * 🎵 Music Player Command
- * Search & show a now-playing card with the song sent as audio.
- * Other users can react with 🎵 to "join" the listening session.
+ * 🎵 Music Player Command  (.np)
  *
- * Usage:
- *   .np <song name or yt link>   — starts "now playing"
- *   .np join                     — join the current session
- *   .np skip                     — skip (owner/admin)
- *   .np stop                     — stop session (owner/admin)
- *   .np queue                    — show queue
- *   .np add <song>               — add to queue
+ * WhatsApp mein audio message bhejta hai (PTT nahi) + Now Playing card
+ * Baaki log .np join likh ke ya 🎵 react karke join ho sakte hain.
+ *
+ * Commands:
+ *   .np <song name / yt link>  — start playing
+ *   .np join                   — join current session
+ *   .np add <song>             — add to queue
+ *   .np queue                  — show queue
+ *   .np skip                   — skip (admin/owner)
+ *   .np stop                   — stop session (admin/owner)
+ *   .np                        — show current NP card
  */
 
-const yts = require('yt-search');
-const axios = require('axios');
-const APIs = require('../../utils/api');
-const { toAudio } = require('../../utils/converter');
+const yts   = require('yt-search');
+const axios  = require('axios');
+const APIs   = require('../../utils/api');
 
-// In-memory sessions per chat
+// In-memory sessions: chatId → session object
 const sessions = new Map();
-// { chatId: { title, duration, url, listeners: Set<jid>, queue: [], playing: bool, msgKey } }
 
-const getSession = (chatId) => sessions.get(chatId) || null;
+const getSession  = (chatId) => sessions.get(chatId) || null;
+const stopSession = (chatId) => sessions.delete(chatId);
 
 const createSession = (chatId, song) => {
   sessions.set(chatId, {
-    title: song.title,
-    duration: song.duration,
-    url: song.url,
+    title:     song.title,
+    duration:  song.duration,
+    url:       song.url,
     thumbnail: song.thumbnail || null,
     listeners: new Set(),
-    queue: [],
-    playing: true,
+    queue:     [],
+    playing:   true,
     startedAt: Date.now()
   });
   return sessions.get(chatId);
 };
 
-const stopSession = (chatId) => sessions.delete(chatId);
-
-// Pretty duration
-const fmtDur = (sec) => {
+// Pretty-print seconds → M:SS
+const fmtSec = (sec) => {
   if (!sec || isNaN(sec)) return 'N/A';
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
 };
 
-// Now-playing card text
-const npCard = (session, listeners) => {
+// Parse "3:45" or "1:02:30" → seconds
+const parseDuration = (str) => {
+  if (!str || typeof str !== 'string') return 0;
+  const parts = str.split(':').map(Number);
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return 0;
+};
+
+// Progress bar
+const buildBar = (startedAt, durationStr) => {
+  const totalSec = parseDuration(durationStr);
+  if (!totalSec) return '▶️ 🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩';
+  const elapsed = Math.min(Math.floor((Date.now() - startedAt) / 1000), totalSec);
+  const pct     = Math.round((elapsed / totalSec) * 10);
+  const filled  = '🟩'.repeat(pct);
+  const empty   = '⬛'.repeat(10 - pct);
+  return `▶️ ${filled}${empty}\n⏩ ${fmtSec(elapsed)} / ${fmtSec(totalSec)}`;
+};
+
+// Now Playing card text
+const npCard = (session) => {
+  const listeners = session.listeners;
   const bar = buildBar(session.startedAt, session.duration);
   const listenerList = [...listeners].map(j => `@${j.split('@')[0]}`).join(', ') || 'Nobody';
   return (
     `🎵 *NOW PLAYING*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `🎶 *${session.title}*\n` +
-    `⏱ Duration: ${session.duration || 'N/A'}\n\n` +
+    `⏱ Duration: *${session.duration || 'N/A'}*\n\n` +
     `${bar}\n\n` +
-    `👥 *Listeners (${listeners.size}):* ${listenerList}\n` +
+    `👥 *Listeners (${listeners.size}):*\n${listenerList}\n\n` +
+    `📋 Queue: *${session.queue.length}* song(s)\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `📋 Queue: ${session.queue.length} song(s) waiting\n` +
-    `> Reply with 🎵 to join the session!`
+    `> 🎵 *Type* \`.np join\` *to join the session!*`
   );
-};
-
-const buildBar = (startedAt, durationStr) => {
-  // Parse duration string like "3:45"
-  let totalSec = 0;
-  if (durationStr && durationStr.includes(':')) {
-    const parts = durationStr.split(':').map(Number);
-    totalSec = parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2];
-  }
-  if (!totalSec) return '▶️ 🎵🎵🎵🎵🎵🎵🎵🎵🎵🎵';
-  const elapsed = Math.min(Math.floor((Date.now() - startedAt) / 1000), totalSec);
-  const pct = Math.round((elapsed / totalSec) * 10);
-  const filled = '🟩'.repeat(pct);
-  const empty = '⬛'.repeat(10 - pct);
-  const elStr = fmtDur(elapsed);
-  const totStr = fmtDur(totalSec);
-  return `${filled}${empty}\n⏩ ${elStr} / ${totStr}`;
 };
 
 module.exports = {
   name: 'np',
   aliases: ['nowplaying', 'musicplayer', 'mp'],
   category: 'media',
-  description: 'Music player — search, play, join & queue songs',
-  usage: '.np <song>  |  .np join  |  .np skip  |  .np stop  |  .np queue  |  .np add <song>',
+  description: 'Music player — play, join & queue songs from YouTube',
+  usage: '.np <song>  |  .np join  |  .np add <song>  |  .np queue  |  .np skip  |  .np stop',
 
-  // Called from handler when someone reacts 🎵 to the now-playing message
+  // Called from handler when someone reacts 🎵
   handleReaction: async (sock, reaction) => {
-    const chatId = reaction.key.remoteJid;
+    const chatId  = reaction.key.remoteJid;
     const reactor = reaction.key.participant || reaction.key.remoteJid;
-    const emoji = reaction.message?.reactionMessage?.text;
+    const emoji   = reaction.message?.reactionMessage?.text;
     if (emoji !== '🎵') return;
-
     const session = getSession(chatId);
-    if (!session || !session.playing) return;
-    if (session.listeners.has(reactor)) return;
-
+    if (!session || !session.playing || session.listeners.has(reactor)) return;
     session.listeners.add(reactor);
     const num = reactor.split('@')[0];
     await sock.sendMessage(chatId, {
-      text: `🎵 *@${num} joined the listening session!*\n\n👥 Listeners: ${session.listeners.size}\n\n${npCard(session, session.listeners)}`,
+      text: `🎵 *@${num} joined the session!*\n\n${npCard(session)}`,
       mentions: [reactor]
     });
   },
 
-  async execute(sock, msg, args, { from, sender, isAdmin, isOwner, reply }) {
-    const sub = (args[0] || '').toLowerCase();
+  async execute(sock, msg, args, ctx) {
+    const { from, sender, isAdmin, isOwner, reply } = ctx;
+    const sub = (args[0] || '').toLowerCase().trim();
 
-    // ── JOIN ────────────────────────────────────────────────────────────────
+    // ── SHOW CARD (no args) ──
+    if (!sub) {
+      const session = getSession(from);
+      if (!session) {
+        return reply(
+          '🎵 *Music Player*\n\n' +
+          '`.np <song>` — Start playing\n' +
+          '`.np join` — Join session\n' +
+          '`.np add <song>` — Add to queue\n' +
+          '`.np queue` — Show queue\n' +
+          '`.np skip` — Skip (admin)\n' +
+          '`.np stop` — Stop (admin)'
+        );
+      }
+      return sock.sendMessage(from, { text: npCard(session) }, { quoted: msg });
+    }
+
+    // ── JOIN ──
     if (sub === 'join') {
       const session = getSession(from);
       if (!session || !session.playing)
-        return reply('❌ No music is currently playing. Start one with `.np <song name>`');
-
-      if (session.listeners.has(sender)) {
-        return reply('🎵 You are already in the listening session!');
-      }
+        return reply('❌ No music playing. Start with `.np <song name>`');
+      if (session.listeners.has(sender))
+        return reply('🎵 You are already in the session!');
       session.listeners.add(sender);
       const num = sender.split('@')[0];
       return sock.sendMessage(from, {
-        text: `🎵 *@${num} joined the listening session!*\n\n${npCard(session, session.listeners)}`,
+        text: `🎵 *@${num} joined the session!*\n\n${npCard(session)}`,
         mentions: [sender]
       }, { quoted: msg });
     }
 
-    // ── STOP ────────────────────────────────────────────────────────────────
+    // ── STOP ──
     if (sub === 'stop') {
-      if (!isOwner && !isAdmin)
-        return reply('❌ Only admins can stop the music.');
-      if (!getSession(from))
-        return reply('❌ No session running.');
+      if (!isOwner && !isAdmin) return reply('❌ Only admins can stop the music.');
+      if (!getSession(from))  return reply('❌ No session running.');
       stopSession(from);
       return reply('⏹️ Music session stopped.');
     }
 
-    // ── SKIP ────────────────────────────────────────────────────────────────
+    // ── SKIP ──
     if (sub === 'skip') {
-      if (!isOwner && !isAdmin)
-        return reply('❌ Only admins can skip.');
+      if (!isOwner && !isAdmin) return reply('❌ Only admins can skip.');
       const session = getSession(from);
       if (!session) return reply('❌ No session running.');
       if (!session.queue.length) {
         stopSession(from);
-        return reply('⏭️ No more songs in queue. Session ended.');
+        return reply('⏭️ Queue empty. Session ended.');
       }
       const next = session.queue.shift();
-      await reply(`⏭️ Skipped! Next: *${next.title}*`);
-      // Trigger play of next song
-      args = ['', next.url];
-      // fall through to play logic below by resetting sub
+      // play next — re-run execute with next song URL
+      return module.exports.execute(sock, msg, [next.url], ctx);
     }
 
-    // ── QUEUE ───────────────────────────────────────────────────────────────
+    // ── QUEUE ──
     if (sub === 'queue') {
       const session = getSession(from);
       if (!session) return reply('❌ No session running.');
@@ -164,17 +175,17 @@ module.exports = {
       return reply(`📋 *Queue (${session.queue.length} songs)*\n\n${list}`);
     }
 
-    // ── ADD TO QUEUE ────────────────────────────────────────────────────────
+    // ── ADD TO QUEUE ──
     if (sub === 'add') {
       const query = args.slice(1).join(' ').trim();
-      if (!query) return reply('Usage: .np add <song name or link>');
+      if (!query) return reply('Usage: `.np add <song name or link>`');
       const session = getSession(from);
       if (!session) return reply('❌ No session running. Start one with `.np <song>`');
       await reply('🔍 Searching...');
       try {
         let info;
         if (query.includes('youtube.com') || query.includes('youtu.be')) {
-          info = { title: 'YouTube Song', url: query, duration: 'N/A' };
+          info = { title: query, url: query, duration: 'N/A' };
         } else {
           const res = await yts(query);
           if (!res?.videos?.length) return reply('❌ No results found.');
@@ -182,33 +193,17 @@ module.exports = {
           info = { title: v.title, url: v.url, duration: v.timestamp };
         }
         session.queue.push(info);
-        return reply(`✅ *${info.title}* added to queue!\n📋 Queue: ${session.queue.length} song(s)`);
+        return reply(`✅ *${info.title}* added to queue!\n📋 Position: #${session.queue.length}`);
       } catch (e) {
-        return reply('❌ Failed to add song: ' + e.message);
+        return reply('❌ Failed: ' + e.message);
       }
     }
 
-    // ── PLAY (default) ──────────────────────────────────────────────────────
+    // ── PLAY (default) ────────────────────────────────────────────
     const query = args.join(' ').trim();
-    if (!query) {
-      const session = getSession(from);
-      if (session) {
-        return sock.sendMessage(from, {
-          text: npCard(session, session.listeners)
-        }, { quoted: msg });
-      }
-      return reply(
-        '🎵 *Music Player*\n\n' +
-        '`.np <song>` — Start playing\n' +
-        '`.np join` — Join session\n' +
-        '`.np add <song>` — Add to queue\n' +
-        '`.np queue` — Show queue\n' +
-        '`.np skip` — Skip (admin)\n' +
-        '`.np stop` — Stop (admin)'
-      );
-    }
+    if (!query) return reply('🎵 Type `.np <song name>` to play a song.');
 
-    // Search
+    // Search YouTube
     let video;
     if (query.includes('youtube.com') || query.includes('youtu.be')) {
       video = { url: query, title: 'YouTube Song', thumbnail: null, timestamp: 'N/A', seconds: 0 };
@@ -216,8 +211,7 @@ module.exports = {
       await sock.sendMessage(from, { react: { text: '🔍', key: msg.key } });
       try {
         const search = await yts(query);
-        if (!search?.videos?.length)
-          return reply('❌ No results found for that query.');
+        if (!search?.videos?.length) return reply('❌ No results found.');
         video = search.videos[0];
       } catch (e) {
         return reply('❌ Search failed: ' + e.message);
@@ -225,21 +219,21 @@ module.exports = {
     }
 
     if (video.seconds && video.seconds > 600)
-      return reply(`❌ Song too long (${video.timestamp}). Max 10 minutes.`);
+      return reply(`❌ Song too long (${video.timestamp}). Max 10 min allowed.`);
 
-    // Create / update session
+    // Create session & add sender as first listener
     const session = createSession(from, {
-      title: video.title,
+      title:    video.title,
       duration: video.timestamp,
-      url: video.url,
+      url:      video.url,
       thumbnail: video.thumbnail
     });
     session.listeners.add(sender);
 
-    // Notify starting
+    // Notify chat
     await sock.sendMessage(from, {
       text:
-        `🎵 *Starting Music Player...*\n\n` +
+        `🎵 *Starting Music Player*\n\n` +
         `🎶 *${video.title}*\n` +
         `⏱ ${video.timestamp || 'N/A'}\n\n` +
         `_Downloading audio, please wait..._`
@@ -250,20 +244,24 @@ module.exports = {
     let audioBuffer;
     try {
       const audioData = await APIs.getYtAudio(video.url);
-      const audioUrl = audioData.download || audioData.dl || audioData.url;
-      if (!audioUrl) throw new Error('No download URL');
+      const audioUrl  = audioData.download || audioData.dl || audioData.url;
+      if (!audioUrl) throw new Error('No download URL returned by API');
 
+      // Download with fallback stream method
       try {
         const resp = await axios.get(audioUrl, {
-          responseType: 'arraybuffer', timeout: 120000,
-          maxContentLength: Infinity, maxBodyLength: Infinity,
+          responseType: 'arraybuffer',
+          timeout: 120000,
+          maxContentLength: Infinity,
+          maxBodyLength:    Infinity,
           headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*', 'Accept-Encoding': 'identity' }
         });
         audioBuffer = Buffer.from(resp.data);
-      } catch (e) {
+      } catch (_) {
         const resp = await axios.get(audioUrl, {
-          responseType: 'stream', timeout: 120000,
-          headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' }
+          responseType: 'stream',
+          timeout: 120000,
+          headers: { 'User-Agent': 'Mozilla/5.0' }
         });
         const chunks = [];
         await new Promise((res, rej) => {
@@ -273,32 +271,29 @@ module.exports = {
         });
         audioBuffer = Buffer.concat(chunks);
       }
-
-      // Convert if needed
-      const sig = audioBuffer.toString('ascii', 0, 4);
-      const ftyp = audioBuffer.slice(4, 8).toString('ascii');
-      let ext = 'mp3';
-      if (ftyp === 'ftyp' || sig === '\x00\x00\x00\x1c') ext = 'm4a';
-      else if (sig === 'OggS') ext = 'ogg';
-
-      if (ext !== 'mp3') {
-        try { audioBuffer = await toAudio(audioBuffer, ext); } catch (e) { /* keep as-is */ }
-      }
     } catch (err) {
       stopSession(from);
-      return reply(`❌ Download failed: ${err.message}`);
+      return reply(`❌ Audio download failed: ${err.message}`);
     }
 
-    // Send audio
-    const sentAudio = await sock.sendMessage(from, {
-      audio: audioBuffer,
+    if (!audioBuffer || audioBuffer.length === 0) {
+      stopSession(from);
+      return reply('❌ Audio buffer empty. Try a different song.');
+    }
+
+    const title = (video.title || 'song').replace(/[^\w\s\-]/g, '').trim();
+
+    // ─── Send as AUDIO message (NOT PTT/voice note) ───
+    // ptt: false  → shows as a normal audio file with scrubber in WhatsApp
+    await sock.sendMessage(from, {
+      audio:    audioBuffer,
       mimetype: 'audio/mpeg',
-      fileName: `${video.title.replace(/[^\w\s]/g, '').trim()}.mp3`,
-      ptt: false
+      fileName: `${title}.mp3`,
+      ptt:      false          // ⬅ THIS is the key: false = playable audio, true = voice note
     }, { quoted: msg });
 
-    // Send now-playing card
-    const cardText = npCard(session, session.listeners);
+    // ─── Send Now Playing card AFTER audio ───
+    const cardText = npCard(session);
     await sock.sendMessage(from, { text: cardText }, { quoted: msg });
     await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
   }

@@ -1,10 +1,12 @@
 /**
  * AddAdmin / RemoveAdmin Command
- * Owner-only: manage bot moderators (not WhatsApp group admins)
+ * Owner-only: manage bot moderators
  *
- * .addadmin @user    — add user as bot moderator
- * .addadmin list     — list all current bot moderators
- * .removeadmin @user — remove user from bot moderators
+ * .addadmin @user        — add by mention
+ * .addadmin 919876543210 — add by number
+ * Reply + .addadmin      — add quoted user
+ * .addadmin list         — list all mods
+ * .removeadmin @user     — remove mod
  */
 
 const database = require('../../database');
@@ -12,14 +14,8 @@ const config   = require('../../config');
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Extract a target JID from:
- * 1. @mention in message
- * 2. Quoted message sender
- * 3. Raw phone number argument (e.g. .addadmin 919876543210)
- */
 const resolveTarget = (msg, args) => {
-  // 1. Mention in any message type
+  // 1. @mention (any message type)
   const ctx =
     msg.message?.extendedTextMessage?.contextInfo ||
     msg.message?.imageMessage?.contextInfo        ||
@@ -30,11 +26,9 @@ const resolveTarget = (msg, args) => {
   if (mentioned.length) return mentioned[0];
 
   // 2. Quoted message sender
-  if (ctx?.participant && ctx.stanzaId && ctx.quotedMessage) {
-    return ctx.participant;
-  }
+  if (ctx?.participant && ctx.stanzaId) return ctx.participant;
 
-  // 3. Plain number argument
+  // 3. Plain number in args (e.g. 919876543210 or +919876543210)
   const rawNum = (args[0] || '').replace(/[^\d]/g, '');
   if (rawNum.length >= 7) return `${rawNum}@s.whatsapp.net`;
 
@@ -44,26 +38,31 @@ const resolveTarget = (msg, args) => {
 const numOnly = (jid) =>
   jid ? jid.split('@')[0].split(':')[0] : null;
 
-// ── addadmin ─────────────────────────────────────────────────────────────────
+// ── module exports ───────────────────────────────────────────────────────────
 
 module.exports = [
   {
     name: 'addadmin',
     aliases: ['addmod'],
-    category: 'Owner',
+    category: 'owner',
     description: 'Add a bot moderator (owner only)',
-    usage: '.addadmin @user  |  .addadmin 919876543210  |  .addadmin list',
+    usage: '.addadmin @user  |  .addadmin 91XXXXXXXXXX  |  .addadmin list',
     ownerOnly: true,
 
     async execute(sock, msg, args, ctx) {
-      const { from, reply } = ctx;
+      const from  = ctx.from;
+      const reply = ctx.reply;
 
-      // ── list subcommand ──
+      // ─ owner check (redundant safety) ─
+      if (!ctx.isOwner) {
+        return reply('❌ Only the *owner* can use this command.');
+      }
+
+      // ─ list subcommand ─
       if ((args[0] || '').toLowerCase() === 'list') {
         const mods = database.getModerators();
         if (!mods.length)
           return reply('📋 *Bot Moderators*\n\nNo moderators added yet.');
-
         const lines = mods.map((n, i) => `${i + 1}. @${n}`).join('\n');
         return sock.sendMessage(from, {
           text: `📋 *Bot Moderators* (${mods.length})\n\n${lines}`,
@@ -71,15 +70,15 @@ module.exports = [
         }, { quoted: msg });
       }
 
-      // ── resolve target ──
+      // ─ resolve target ─
       const target = resolveTarget(msg, args);
       if (!target) {
         return reply(
-          '❌ *Usage:*\n' +
-          '• `.addadmin @user` — mention the user\n' +
-          '• Reply to their message with `.addadmin`\n' +
-          '• `.addadmin 91XXXXXXXXXX` — paste their number\n' +
-          '• `.addadmin list` — see all mods'
+          '❌ *How to use .addadmin:*\n' +
+          '• `.addadmin @user` — tag the user\n' +
+          '• Reply to their message + `.addadmin`\n' +
+          '• `.addadmin 919876543210` — paste their number\n' +
+          '• `.addadmin list` — see all current mods'
         );
       }
 
@@ -99,31 +98,33 @@ module.exports = [
       }
 
       return sock.sendMessage(from, {
-        text: `✅ @${num} has been added as a *Bot Moderator*!\n\n🛡️ They can now use mod-only commands.`,
+        text: `✅ @${num} has been added as *Bot Moderator*!\n\n🛡️ They can now use mod-only commands.`,
         mentions: [`${num}@s.whatsapp.net`]
       }, { quoted: msg });
     }
   },
 
-  // ── removeadmin ────────────────────────────────────────────────────────────
   {
     name: 'removeadmin',
     aliases: ['removemod', 'deladmin', 'delmod'],
-    category: 'Owner',
+    category: 'owner',
     description: 'Remove a bot moderator (owner only)',
     usage: '.removeadmin @user  |  .removeadmin 919876543210',
     ownerOnly: true,
 
     async execute(sock, msg, args, ctx) {
-      const { from, reply } = ctx;
+      const from  = ctx.from;
+      const reply = ctx.reply;
+
+      if (!ctx.isOwner) return reply('❌ Only the *owner* can use this command.');
 
       const target = resolveTarget(msg, args);
       if (!target) {
         return reply(
-          '❌ *Usage:*\n' +
-          '• `.removeadmin @user` — mention the user\n' +
-          '• Reply to their message with `.removeadmin`\n' +
-          '• `.removeadmin 91XXXXXXXXXX` — paste their number'
+          '❌ *How to use .removeadmin:*\n' +
+          '• `.removeadmin @user`\n' +
+          '• Reply + `.removeadmin`\n' +
+          '• `.removeadmin 919876543210`'
         );
       }
 
@@ -139,7 +140,7 @@ module.exports = [
       }
 
       return sock.sendMessage(from, {
-        text: `✅ @${num} has been removed from *Bot Moderators*.`,
+        text: `✅ @${num} removed from *Bot Moderators*.`,
         mentions: [`${num}@s.whatsapp.net`]
       }, { quoted: msg });
     }

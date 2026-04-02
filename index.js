@@ -49,6 +49,15 @@ const path = require('path');
 const zlib = require('zlib');
 const os = require('os');
 
+// ── reconnect state ─────────────────────────────────────────────────────────
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
+
+const getReconnectDelay = (attempt) => {
+  // exponential backoff: 3s, 6s, 12s, 24s … capped at 60s
+  return Math.min(3000 * Math.pow(2, attempt), 60000);
+};
+
 function cleanupPuppeteerCache() {
   try {
     const home = os.homedir();
@@ -149,7 +158,6 @@ async function startBot() {
     downloadHistory: false,
     markOnlineOnConnect: false,
     getMessage: async (key) => {
-      // Required for poll decryption — return stored message if available
       return store.messages.get(key.remoteJid)?.get(key.id) || undefined;
     }
   });
@@ -180,17 +188,55 @@ async function startBot() {
       console.log('\n\n📱 Scan this QR code with WhatsApp:\n');
       qrcode.generate(qr, { small: true });
     }
+
     if (connection === 'close') {
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      clearInterval(watchdogInterval);
+
+      const statusCode   = lastDisconnect?.error?.output?.statusCode;
       const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
-      if (statusCode === 515 || statusCode === 503 || statusCode === 408) {
-        console.log(`⚠️ Connection closed (${statusCode}). Reconnecting...`);
-      } else {
-        console.log('Connection closed due to:', errorMessage, '\nReconnecting:', shouldReconnect);
+
+      // ── 440 Stream Conflict: another WhatsApp Web session is open ──────────
+      if (statusCode === 440) {
+        reconnectAttempts++;
+        const delay = getReconnectDelay(reconnectAttempts);
+        console.log(`⚠️ Stream Conflict (440) — another session detected!`);
+        console.log(`   Make sure no other WhatsApp Web / bot instance is using this number.`);
+        console.log(`   Reconnect attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay / 1000}s...`);
+
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+          console.error('❌ Too many Stream Conflicts. Exiting so Railway can restart fresh.');
+          process.exit(1);
+        }
+        setTimeout(() => startBot(), delay);
+        return;
       }
-      if (shouldReconnect) setTimeout(() => startBot(), 3000);
+
+      // ── Logged out — DO NOT reconnect, need fresh QR ─────────────────────
+      if (statusCode === DisconnectReason.loggedOut) {
+        console.log('🔴 Logged out. Please scan QR again.');
+        process.exit(1);
+        return;
+      }
+
+      // ── 515 / 503 / 408 — transient WA server errors ──────────────────────
+      if (statusCode === 515 || statusCode === 503 || statusCode === 408) {
+        reconnectAttempts++;
+        const delay = getReconnectDelay(reconnectAttempts);
+        console.log(`⚠️ WA server error (${statusCode}). Reconnecting in ${delay / 1000}s... (attempt ${reconnectAttempts})`);
+        setTimeout(() => startBot(), delay);
+        return;
+      }
+
+      // ── Generic close — normal reconnect ──────────────────────────────────
+      reconnectAttempts++;
+      const delay = getReconnectDelay(reconnectAttempts);
+      console.log(`Connection closed: ${errorMessage} | Reconnecting in ${delay / 1000}s... (attempt ${reconnectAttempts})`);
+      setTimeout(() => startBot(), delay);
+
     } else if (connection === 'open') {
+      // ── Connected! Reset attempt counter ──────────────────────────────────
+      reconnectAttempts = 0;
+
       console.log('\n✅ Bot connected successfully!');
       console.log(`📱 Bot Number: ${sock.user.id.split(':')[0]}`);
       console.log(`🤖 Bot Name: ${config.botName}`);
@@ -259,27 +305,13 @@ async function startBot() {
 
   sock.ev.on('message-receipt.update', () => {});
 
-  // 📊 POLL VOTE HANDLER — FIXED
-  // Baileys fires 'messages.update' with pollUpdateDecryptedV1 after decryption
-  // The pollCreationMessageKey is inside the update.update object, NOT update.key
   sock.ev.on('messages.update', async (updates) => {
     for (const update of updates) {
       try {
         const pollVote = update?.update?.pollUpdateDecryptedV1;
         if (!pollVote) continue;
-
-        // voter is the person who voted = participant in group, or remoteJid in DM
         const voter = update.key.participant || update.key.remoteJid;
-
-        // pollCreationMessageKey = the key of the ORIGINAL poll message
-        // In Baileys, this comes from update.update.pollUpdateDecryptedV1
-        // The poll creation message key is stored as update.key (the poll update message key)
-        // But the original poll msg key needs to come from stored messages
-        // Baileys structure: update.key = poll update key, we need original poll id
-        // selectedOptions from votes array
         const selectedOptions = (pollVote.votes || []).map(v => v.optionName);
-
-        // Try both: update.key.id might be the poll creation id in some Baileys versions
         const pollUpdate = {
           pollCreationMessageKey: {
             remoteJid: update.key.remoteJid,
@@ -290,20 +322,12 @@ async function startBot() {
           selectedOptions,
           pushName: update.pushName || voter.split('@')[0]
         };
-
         const quizMod = require('./commands/fun/quiz');
-        const jeeMod = require('./commands/fun/jee');
-
+        const jeeMod  = require('./commands/fun/jee');
         let handled = false;
-        if (typeof jeeMod.handlePollVote === 'function') {
-          handled = await jeeMod.handlePollVote(sock, pollUpdate);
-        }
-        if (!handled && typeof quizMod.handlePollVote === 'function') {
-          await quizMod.handlePollVote(sock, pollUpdate);
-        }
-      } catch (e) {
-        // silent
-      }
+        if (typeof jeeMod.handlePollVote === 'function') handled = await jeeMod.handlePollVote(sock, pollUpdate);
+        if (!handled && typeof quizMod.handlePollVote === 'function') await quizMod.handlePollVote(sock, pollUpdate);
+      } catch (e) {}
     }
   });
 
@@ -313,7 +337,7 @@ async function startBot() {
 
   sock.ev.on('error', (error) => {
     const statusCode = error?.output?.statusCode;
-    if (statusCode === 515 || statusCode === 503 || statusCode === 408) return;
+    if (statusCode === 515 || statusCode === 503 || statusCode === 408 || statusCode === 440) return;
     console.error('Socket error:', error.message || error);
   });
 

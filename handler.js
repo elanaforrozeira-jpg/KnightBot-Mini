@@ -12,6 +12,16 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 
+// Watcher modules (AFK, Filter, AntiWords)
+let _afkWatcher, _filterWatcher, _antiwordsWatcher;
+try { _afkWatcher      = require('./commands/general/afk');     } catch (e) {}
+try { _filterWatcher   = require('./commands/admin/filter');    } catch (e) {}
+try { _antiwordsWatcher= require('./commands/admin/antiwords'); } catch (e) {}
+
+const checkAfk       = async (sock, msg) => { try { const m = Array.isArray(_afkWatcher) ? _afkWatcher.find(c => c.name === '__afk_watcher') : null; if (m?.checkAfk) await m.checkAfk(sock, msg); } catch (e) {} };
+const checkFilter    = async (sock, msg, body, from) => { try { const m = Array.isArray(_filterWatcher) ? _filterWatcher.find(c => c.name === '__filter_watcher') : null; if (m?.checkFilter) await m.checkFilter(sock, msg, body, from); } catch (e) {} };
+const checkAntiwords = async (sock, msg, body, from) => { try { const m = Array.isArray(_antiwordsWatcher) ? _antiwordsWatcher.find(c => c.name === '__antiwords_watcher') : null; if (m?.checkAntiwords) await m.checkAntiwords(sock, msg, body, from); } catch (e) {} };
+
 // Group metadata cache to prevent rate limiting
 const groupMetadataCache = new Map();
 const CACHE_TTL = 30000;
@@ -338,6 +348,16 @@ const handleMessage = async (sock, msg) => {
     else if (content.imageMessage) body = content.imageMessage.caption || '';
     else if (content.videoMessage) body = content.videoMessage.caption || '';
     body = (body || '').trim();
+
+    // ── Watcher hooks (AFK, Filter, AntiWords) ────────────────────────────
+    if (!msg.key.fromMe) {
+      await checkAfk(sock, msg);
+      if (isGroup) {
+        await checkFilter(sock, msg, body, from);
+        await checkAntiwords(sock, msg, body, from);
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────
 
     if (!msg.key.fromMe) {
       try { const quizModule = require('./commands/fun/quiz'); if (typeof quizModule.handleAnswer === 'function') { const handled = await quizModule.handleAnswer(sock, msg); if (handled) return; } } catch (e) {}

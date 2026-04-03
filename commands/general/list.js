@@ -14,16 +14,8 @@ const CAT_EMOJIS = {
   general: '📌',
   media:   '🎬',
   owner:   '👑',
+  utility: '🔧',
   other:   '📦',
-};
-
-// Rainbow-style Unicode block colouring using bold italic chars
-const colorName = (name) => {
-  // Each letter gets a Unicode "colour" via variation — we use bold for pop
-  const colours = ['🔴','🟠','🟡','🟢','🔵','🟣','🩷'];
-  return name.split('').map((c, i) =>
-    c === ' ' ? ' ' : `${c}`
-  ).join('');
 };
 
 // Big colourful block letters R U H V A A N using emoji squares
@@ -47,7 +39,7 @@ module.exports = {
       const categories = {};
 
       commands.forEach((cmd, name) => {
-        if (cmd.name === name) {
+        if (cmd.name === name && !cmd.hidden) {
           const cat = (cmd.category || 'other').toLowerCase();
           if (!categories[cat]) categories[cat] = [];
           categories[cat].push({
@@ -82,19 +74,12 @@ module.exports = {
 
       menu = menu.trimEnd();
 
-      // ── Send with colourful Ruhvaan footer ───────────────────────────────
+      // ── Send with only GitHub button ─────────────────────────────────────
       await sendButtons(sock, extra.from, {
         title: '',
         text: menu,
         footer: '🟥🟧🟨🟩🟦🟪🩷 *Ruhvaan* 🩷🟪🟦🟩🟨🟧🟥',
         buttons: [
-          {
-            name: 'cta_url',
-            buttonParamsJson: JSON.stringify({
-              display_text: '🎬 YouTube',
-              url: config.social?.youtube || 'https://youtube.com/@mr_unique_hacker'
-            })
-          },
           {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
@@ -113,7 +98,7 @@ module.exports = {
         const commands = loadCommands();
         const categories = {};
         commands.forEach((cmd, name) => {
-          if (cmd.name === name) {
+          if (cmd.name === name && !cmd.hidden) {
             const cat = (cmd.category || 'other').toLowerCase();
             if (!categories[cat]) categories[cat] = [];
             categories[cat].push({ label: cmd.description || '', names: [cmd.name].concat(cmd.aliases || []) });

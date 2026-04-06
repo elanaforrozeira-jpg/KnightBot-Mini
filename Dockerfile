@@ -1,6 +1,6 @@
 FROM node:20-bullseye-slim
 
-# Install git + native build deps + fonts
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
@@ -21,17 +21,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && fc-cache -fv \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp as standalone binary (no Python version dependency)
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
-    && chmod a+rx /usr/local/bin/yt-dlp
+# Install yt-dlp
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+    -o /usr/local/bin/yt-dlp && chmod a+rx /usr/local/bin/yt-dlp
 
 WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm install --legacy-peer-deps
+# Install required deps — optional ones can fail safely
+RUN npm install --legacy-peer-deps --omit=optional || \
+    npm install --legacy-peer-deps --omit=optional --ignore-scripts
 
-# Try canvas rebuild (ok if fails)
+# Try optional packages separately (ok if they fail)
+RUN npm install --legacy-peer-deps \
+    @bochilteam/scraper \
+    @bochilteam/scraper-tiktok \
+    @bochilteam/scraper-facebook \
+    ruhend-scraper \
+    mumaker \
+    lottie-node \
+    lottie-web \
+    canvas || echo "Optional packages skipped — non-critical"
+
+# canvas rebuild (ok if fails)
 RUN npm rebuild canvas --update-binary || echo "canvas rebuild skipped"
 
 COPY . .

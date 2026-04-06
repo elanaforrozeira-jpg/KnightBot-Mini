@@ -53,9 +53,6 @@ const os = require('os');
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 
-// ── SESSION WRITE GUARD ──────────────────────────────────────────────────────
-// Sirf pehli baar (process start pe) session write hogi.
-// Reconnect pe creds.json dobara OVERWRITE NAHI hogi — yahi 440 loop ka root cause tha.
 let sessionWrittenOnce = false;
 
 const getReconnectDelay = (attempt) => {
@@ -133,9 +130,6 @@ async function startBot() {
   const sessionFolder = `./${config.sessionName}`;
   const sessionFile = path.join(sessionFolder, 'creds.json');
 
-  // ── Write session ONLY on first boot ─────────────────────────────────────────────
-  // Reconnect ke waqt sessionWrittenOnce = true hoga, toh overwrite nahi hogi.
-  // Is wajah se har reconnect pe WhatsApp ko naya session nazar nahi aayega (440 fix).
   if (!sessionWrittenOnce && config.sessionID && config.sessionID.startsWith('KnightBot!')) {
     try {
       const [header, b64data] = config.sessionID.split('!');
@@ -155,14 +149,24 @@ async function startBot() {
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
-  const { version } = await fetchLatestBaileysVersion();
+
+  // fetchLatestBaileysVersion ke fail hone pe fallback version use karo
+  let version = [2, 3000, 1015901307];
+  try {
+    const result = await fetchLatestBaileysVersion();
+    if (result && result.version) version = result.version;
+    console.log(`📦 Baileys version: ${version.join('.')}`);
+  } catch (e) {
+    console.warn('⚠️ fetchLatestBaileysVersion failed, using fallback version:', version.join('.'));
+  }
+
   const suppressedLogger = createSuppressedLogger('silent');
 
   const sock = makeWASocket({
     version,
     logger: suppressedLogger,
     printQRInTerminal: false,
-    browser: ['Chrome', 'Windows', '10.0'],
+    browser: Browsers.ubuntu('Chrome'),
     auth: state,
     syncFullHistory: false,
     downloadHistory: false,
@@ -205,7 +209,6 @@ async function startBot() {
       const statusCode   = lastDisconnect?.error?.output?.statusCode;
       const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
 
-      // ── 440 Stream Conflict ───────────────────────────────────────────────
       if (statusCode === 440) {
         reconnectAttempts++;
         const delay = getReconnectDelay(reconnectAttempts);
@@ -218,14 +221,12 @@ async function startBot() {
         return;
       }
 
-      // ── Logged out ───────────────────────────────────────────────────────────
       if (statusCode === DisconnectReason.loggedOut) {
         console.log('🔴 Logged out. Please update SESSION_ID and redeploy.');
         process.exit(1);
         return;
       }
 
-      // ── WA server errors ───────────────────────────────────────────────────
       if (statusCode === 515 || statusCode === 503 || statusCode === 408) {
         reconnectAttempts++;
         const delay = getReconnectDelay(reconnectAttempts);
@@ -234,7 +235,6 @@ async function startBot() {
         return;
       }
 
-      // ── Generic close ──────────────────────────────────────────────────────
       reconnectAttempts++;
       const delay = getReconnectDelay(reconnectAttempts);
       console.log(`Connection closed: ${errorMessage} | Reconnecting in ${delay / 1000}s...`);
@@ -268,32 +268,47 @@ async function startBot() {
       jid.includes('@newsletter') || jid.includes('@newsletter.');
   };
 
+  // MESSAGE_AGE_LIMIT badhaya — 5min se 10min
+  // Isse naye deploy ke baad bhi recent messages process honge
+  const MESSAGE_AGE_LIMIT = 10 * 60 * 1000;
+
   sock.ev.on('messages.upsert', ({ messages, type }) => {
-    if (type !== 'notify') return;
+    // 'notify' aur 'append' dono accept karo
+    if (type !== 'notify' && type !== 'append') return;
     for (const msg of messages) {
       if (!msg.message || !msg.key?.id) continue;
       const from = msg.key.remoteJid;
       if (!from || isSystemJid(from)) continue;
       const msgId = msg.key.id;
       if (processedMessages.has(msgId)) continue;
-      const MESSAGE_AGE_LIMIT = 5 * 60 * 1000;
+
+      // Age check — skip only truly old messages
       if (msg.messageTimestamp && Date.now() - (msg.messageTimestamp * 1000) > MESSAGE_AGE_LIMIT) continue;
+
       processedMessages.add(msgId);
-      if (msg.key && msg.key.id) {
-        if (!store.messages.has(from)) store.messages.set(from, new Map());
-        const chatMsgs = store.messages.get(from);
-        chatMsgs.set(msg.key.id, msg);
-        if (chatMsgs.size > store.maxPerChat) {
-          const sortedIds = Array.from(chatMsgs.entries())
-            .sort((a, b) => (a[1].messageTimestamp || 0) - (b[1].messageTimestamp || 0))
-            .map(([id]) => id);
-          for (let i = 0; i < sortedIds.length - store.maxPerChat; i++) chatMsgs.delete(sortedIds[i]);
-        }
+
+      // Store mein save karo
+      if (!store.messages.has(from)) store.messages.set(from, new Map());
+      const chatMsgs = store.messages.get(from);
+      chatMsgs.set(msg.key.id, msg);
+      if (chatMsgs.size > store.maxPerChat) {
+        const sortedIds = Array.from(chatMsgs.entries())
+          .sort((a, b) => (a[1].messageTimestamp || 0) - (b[1].messageTimestamp || 0))
+          .map(([id]) => id);
+        for (let i = 0; i < sortedIds.length - store.maxPerChat; i++) chatMsgs.delete(sortedIds[i]);
       }
+
+      // Debug log — message receive hua confirm karna
+      const body = msg.message?.conversation ||
+                   msg.message?.extendedTextMessage?.text ||
+                   msg.message?.imageMessage?.caption || '';
+      if (body) originalConsoleLog.call(console, `📨 MSG from ${from.split('@')[0]}: ${body.slice(0, 60)}`);
+
       handler.handleMessage(sock, msg).catch(err => {
         if (!err.message?.includes('rate-overlimit') && !err.message?.includes('not-authorized'))
           console.error('Error handling message:', err.message);
       });
+
       setImmediate(async () => {
         if (config.autoRead && from.endsWith('@g.us')) {
           try { await sock.readMessages([msg.key]); } catch (e) {}

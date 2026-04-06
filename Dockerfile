@@ -29,22 +29,18 @@ WORKDIR /app
 
 COPY package*.json ./
 
-# Install required deps — optional ones can fail safely
-RUN npm install --legacy-peer-deps --omit=optional || \
-    npm install --legacy-peer-deps --omit=optional --ignore-scripts
+# Step 1: Install only required (non-optional) packages
+RUN npm install --legacy-peer-deps --omit=optional
 
-# Try optional packages separately (ok if they fail)
+# Step 2: Try optional packages - build won't fail if these error out
 RUN npm install --legacy-peer-deps \
     @bochilteam/scraper \
     @bochilteam/scraper-tiktok \
     @bochilteam/scraper-facebook \
-    ruhend-scraper \
-    mumaker \
-    lottie-node \
-    lottie-web \
-    canvas || echo "Optional packages skipped — non-critical"
+    ruhend-scraper mumaker lottie-node lottie-web canvas \
+    || echo "[INFO] Some optional packages skipped - non-critical"
 
-# canvas rebuild (ok if fails)
+# canvas native rebuild (ok if fails)
 RUN npm rebuild canvas --update-binary || echo "canvas rebuild skipped"
 
 COPY . .

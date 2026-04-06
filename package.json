@@ -14,7 +14,7 @@
     "dependencies": {
         "@distube/ytdl-core": "^4.16.9",
         "@vitalets/google-translate-api": "8.0.0",
-        "@whiskeysockets/baileys": "7.0.0-rc.9",
+        "@whiskeysockets/baileys": "6.7.18",
         "axios": "^1.7.2",
         "cheerio": "^1.0.0",
         "ffmpeg-static": "^5.2.0",

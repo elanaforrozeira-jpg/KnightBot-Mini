@@ -11,7 +11,6 @@ const api = axios.create({
   }
 });
 
-// Shared defaults
 const AXIOS_DEFAULTS = {
   timeout: 60000,
   headers: {
@@ -32,12 +31,11 @@ const tryRequest = async (getter, attempts = 3) => {
   throw lastError;
 };
 
-// API Endpoints
 const APIs = {
   // Image Generation
   generateImage: async (prompt) => {
     try {
-      const response = await api.get(`https://api.siputzx.my.id/api/ai/stablediffusion`, { params: { prompt } });
+      const response = await api.get('https://api.siputzx.my.id/api/ai/stablediffusion', { params: { prompt } });
       return response.data;
     } catch (error) { throw new Error('Failed to generate image'); }
   },
@@ -46,38 +44,29 @@ const APIs = {
   chatAI: async (text) => {
     try {
       const response = await api.get(`https://api.shizo.top/ai/gpt?apikey=shizo&query=${encodeURIComponent(text)}`);
-      if (response.data && response.data.msg) return { msg: response.data.msg };
+      if (response.data?.msg) return { msg: response.data.msg };
       return response.data;
     } catch (error) { throw new Error('Failed to get AI response'); }
   },
 
-  // ─── YouTube Audio Download (multi-API fallback chain) ───────────────────
+  // ─── YouTube Audio Download ───────────────────────────────────────────────
   getYtAudio: async (url) => {
-    // 1. cobalt.tools (most reliable)
+    // 1. cobalt.tools
     try {
       const res = await axios.post('https://cobalt.tools/api', {
-        url,
-        downloadMode: 'audio',
-        audioFormat: 'mp3',
-        audioBitrate: '128'
-      }, {
-        timeout: 30000,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
-      });
+        url, downloadMode: 'audio', audioFormat: 'mp3', audioBitrate: '128'
+      }, { timeout: 40000, headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' } });
       if (res.data?.url) return { download: res.data.url, title: res.data.filename || 'audio' };
-    } catch (e) { /* try next */ }
+    } catch (_) {}
 
-    // 2. yt-dlp based public API
+    // 2. cobalt legacy
     try {
       const res = await tryRequest(() => axios.get(
         `https://api.cobalt.tools/api/json?url=${encodeURIComponent(url)}&isAudioOnly=true&aFormat=mp3`,
-        { timeout: 30000, headers: { 'Accept': 'application/json' } }
+        { timeout: 40000, headers: { 'Accept': 'application/json' } }
       ));
       if (res.data?.url) return { download: res.data.url, title: res.data.filename || 'audio' };
-    } catch (e) { /* try next */ }
+    } catch (_) {}
 
     // 3. Izumi
     try {
@@ -86,7 +75,7 @@ const APIs = {
         AXIOS_DEFAULTS
       ));
       if (res?.data?.result?.download) return res.data.result;
-    } catch (e) { /* try next */ }
+    } catch (_) {}
 
     // 4. Yupra
     try {
@@ -96,7 +85,7 @@ const APIs = {
       ));
       if (res?.data?.success && res?.data?.data?.download_url)
         return { download: res.data.data.download_url, title: res.data.data.title };
-    } catch (e) { /* try next */ }
+    } catch (_) {}
 
     // 5. Okatsu
     try {
@@ -105,7 +94,7 @@ const APIs = {
         AXIOS_DEFAULTS
       ));
       if (res?.data?.dl) return { download: res.data.dl, title: res.data.title };
-    } catch (e) { /* try next */ }
+    } catch (_) {}
 
     // 6. EliteProTech
     try {
@@ -115,27 +104,33 @@ const APIs = {
       ));
       if (res?.data?.success && res?.data?.downloadURL)
         return { download: res.data.downloadURL, title: res.data.title };
-    } catch (e) { /* try next */ }
+    } catch (_) {}
 
-    throw new Error('All YouTube audio APIs failed');
+    throw new Error('All YouTube audio APIs failed. Please try again.');
   },
 
-  // ─── YouTube Video Download (multi-API fallback chain) ───────────────────
+  // ─── YouTube Video Download (720p, no length limit) ──────────────────────
   getYtVideo: async (url) => {
-    // 1. cobalt.tools
+    // 1. cobalt.tools — force 720p
     try {
       const res = await axios.post('https://cobalt.tools/api', {
         url,
         downloadMode: 'auto',
         videoQuality: '720'
-      }, {
-        timeout: 30000,
-        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
-      });
+      }, { timeout: 60000, headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' } });
       if (res.data?.url) return { download: res.data.url, title: res.data.filename || 'video' };
-    } catch (e) { /* try next */ }
+    } catch (_) {}
 
-    // 2. Yupra
+    // 2. cobalt legacy — 720p
+    try {
+      const res = await tryRequest(() => axios.get(
+        `https://api.cobalt.tools/api/json?url=${encodeURIComponent(url)}&vQuality=720`,
+        { timeout: 60000, headers: { 'Accept': 'application/json' } }
+      ));
+      if (res.data?.url) return { download: res.data.url, title: res.data.filename || 'video' };
+    } catch (_) {}
+
+    // 3. Yupra
     try {
       const res = await tryRequest(() => axios.get(
         `https://api.yupra.my.id/api/downloader/ytmp4?url=${encodeURIComponent(url)}`,
@@ -143,18 +138,18 @@ const APIs = {
       ));
       if (res?.data?.success && res?.data?.data?.download_url)
         return { download: res.data.data.download_url, title: res.data.data.title };
-    } catch (e) { /* try next */ }
+    } catch (_) {}
 
-    // 3. Okatsu
+    // 4. Okatsu
     try {
       const res = await tryRequest(() => axios.get(
         `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp4?url=${encodeURIComponent(url)}`,
         AXIOS_DEFAULTS
       ));
       if (res?.data?.result?.mp4) return { download: res.data.result.mp4, title: res.data.result.title };
-    } catch (e) { /* try next */ }
+    } catch (_) {}
 
-    // 4. EliteProTech
+    // 5. EliteProTech
     try {
       const res = await tryRequest(() => axios.get(
         `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(url)}&format=mp4`,
@@ -162,24 +157,24 @@ const APIs = {
       ));
       if (res?.data?.success && res?.data?.downloadURL)
         return { download: res.data.downloadURL, title: res.data.title };
-    } catch (e) { /* try next */ }
+    } catch (_) {}
 
-    throw new Error('All YouTube video APIs failed');
+    throw new Error('All YouTube video APIs failed. Please try again.');
   },
 
-  // Keep old named methods as aliases for backward compat
-  getIzumiDownloadByUrl: async (url) => APIs.getYtAudio(url),
-  getYupraDownloadByUrl: async (url) => APIs.getYtAudio(url),
-  getOkatsuDownloadByUrl: async (url) => APIs.getYtAudio(url),
-  getEliteProTechDownloadByUrl: async (url) => APIs.getYtAudio(url),
-  getYupraVideoByUrl: async (url) => APIs.getYtVideo(url),
-  getOkatsuVideoByUrl: async (url) => APIs.getYtVideo(url),
-  getEliteProTechVideoByUrl: async (url) => APIs.getYtVideo(url),
+  // Backward compat aliases
+  getIzumiDownloadByUrl:       async (url) => APIs.getYtAudio(url),
+  getYupraDownloadByUrl:       async (url) => APIs.getYtAudio(url),
+  getOkatsuDownloadByUrl:      async (url) => APIs.getYtAudio(url),
+  getEliteProTechDownloadByUrl:async (url) => APIs.getYtAudio(url),
+  getYupraVideoByUrl:          async (url) => APIs.getYtVideo(url),
+  getOkatsuVideoByUrl:         async (url) => APIs.getYtVideo(url),
+  getEliteProTechVideoByUrl:   async (url) => APIs.getYtVideo(url),
 
   // Instagram Download
   igDownload: async (url) => {
     try {
-      const response = await api.get(`https://api.siputzx.my.id/api/d/igdl`, { params: { url } });
+      const response = await api.get('https://api.siputzx.my.id/api/d/igdl', { params: { url } });
       return response.data;
     } catch (error) { throw new Error('Failed to download Instagram content'); }
   },
@@ -190,15 +185,11 @@ const APIs = {
     try {
       const response = await axios.get(apiUrl, {
         timeout: 15000,
-        headers: { 'accept': '*/*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        headers: { 'accept': '*/*', 'User-Agent': 'Mozilla/5.0' }
       });
-      if (response.data && response.data.status && response.data.data) {
-        let videoUrl = null;
+      if (response.data?.status && response.data?.data) {
         const d = response.data.data;
-        if (d.urls?.length) videoUrl = d.urls[0];
-        else if (d.video_url) videoUrl = d.video_url;
-        else if (d.url) videoUrl = d.url;
-        else if (d.download_url) videoUrl = d.download_url;
+        const videoUrl = d.urls?.[0] || d.video_url || d.url || d.download_url || null;
         return { videoUrl, title: d.metadata?.title || 'TikTok Video' };
       }
       throw new Error('Invalid API response');
@@ -208,7 +199,7 @@ const APIs = {
   // Translate
   translate: async (text, to = 'en') => {
     try {
-      const response = await api.get(`https://api.siputzx.my.id/api/tools/translate`, { params: { text, to } });
+      const response = await api.get('https://api.siputzx.my.id/api/tools/translate', { params: { text, to } });
       return response.data;
     } catch (error) { throw new Error('Translation failed'); }
   },
@@ -240,7 +231,7 @@ const APIs = {
   // Weather
   getWeather: async (city) => {
     try {
-      const response = await api.get(`https://api.siputzx.my.id/api/tools/weather`, { params: { city } });
+      const response = await api.get('https://api.siputzx.my.id/api/tools/weather', { params: { city } });
       return response.data;
     } catch (error) { throw new Error('Failed to fetch weather'); }
   },
@@ -248,7 +239,7 @@ const APIs = {
   // Shorten URL
   shortenUrl: async (url) => {
     try {
-      const response = await api.get(`https://tinyurl.com/api-create.php`, { params: { url } });
+      const response = await api.get('https://tinyurl.com/api-create.php', { params: { url } });
       return response.data;
     } catch (error) { throw new Error('Failed to shorten URL'); }
   },
@@ -264,10 +255,10 @@ const APIs = {
   // Screenshot Website
   screenshotWebsite: async (url) => {
     try {
-      const apiUrl = `https://eliteprotech-apis.zone.id/ssweb?url=${encodeURIComponent(url)}`;
+      const apiUrl   = `https://eliteprotech-apis.zone.id/ssweb?url=${encodeURIComponent(url)}`;
       const response = await axios.get(apiUrl, {
         timeout: 30000, responseType: 'arraybuffer',
-        headers: { 'accept': '*/*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        headers: { 'accept': '*/*', 'User-Agent': 'Mozilla/5.0' }
       });
       if (response.headers['content-type']?.includes('image')) return Buffer.from(response.data);
       try {
@@ -280,17 +271,17 @@ const APIs = {
   // Text to Speech
   textToSpeech: async (text) => {
     try {
-      const apiUrl = `https://www.laurine.site/api/tts/tts-nova?text=${encodeURIComponent(text)}`;
+      const apiUrl   = `https://www.laurine.site/api/tts/tts-nova?text=${encodeURIComponent(text)}`;
       const response = await axios.get(apiUrl, {
         timeout: 30000,
-        headers: { 'accept': '*/*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        headers: { 'accept': '*/*', 'User-Agent': 'Mozilla/5.0' }
       });
       if (response.data) {
         if (typeof response.data === 'string' && response.data.startsWith('http')) return response.data;
         const d = response.data.data || response.data;
         return d.URL || d.url || (d.MP3 && `https://ttsmp3.com/created_mp3_ai/${d.MP3}`) || (d.mp3 && `https://ttsmp3.com/created_mp3_ai/${d.mp3}`);
       }
-      throw new Error('Invalid API response structure');
+      throw new Error('Invalid API response');
     } catch (error) { throw new Error(`Failed to generate speech: ${error.message}`); }
   }
 };

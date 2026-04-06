@@ -1,12 +1,12 @@
 /**
- * Song Downloader - Download audio from YouTube
- * Uses multi-API fallback chain via utils/api.js
+ * Song Downloader - YouTube Audio
+ * • Sends as audio/mp4 (voice note = false) so it plays in WhatsApp
+ * • Multi-API fallback
  */
 
-const yts = require('yt-search');
-const axios = require('axios');
-const APIs = require('../../utils/api');
-const { toAudio } = require('../../utils/converter');
+const yts   = require('yt-search');
+const axios  = require('axios');
+const APIs   = require('../../utils/api');
 
 module.exports = {
   name: 'song',
@@ -31,36 +31,38 @@ module.exports = {
       } else {
         await sock.sendMessage(chatId, { react: { text: '🔍', key: msg.key } });
         const search = await yts(text);
-        if (!search || !search.videos.length) {
-          return await sock.sendMessage(chatId, { text: '❌ No results found for that query.' }, { quoted: msg });
+        if (!search?.videos?.length) {
+          return await sock.sendMessage(chatId, { text: '❌ No results found.' }, { quoted: msg });
         }
         video = search.videos[0];
       }
 
-      // Inform user
-      const infoMsg = `🎵 *Downloading...*\n\n📌 *${video.title || 'Audio'}*\n⏱ Duration: ${video.timestamp || 'N/A'}\n\n_Please wait..._`;
-      await sock.sendMessage(chatId, { text: infoMsg }, { quoted: msg });
+      await sock.sendMessage(chatId, {
+        text: `🎵 *Downloading...*\n\n📌 *${video.title || 'Audio'}*\n⏱ Duration: ${video.timestamp || 'N/A'}\n\n_Please wait..._`
+      }, { quoted: msg });
       await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
 
-      // Download via multi-API fallback
+      // Get audio URL
       const audioData = await APIs.getYtAudio(video.url);
-      const audioUrl = audioData.download || audioData.dl || audioData.url;
-      if (!audioUrl) throw new Error('No download URL returned from any API');
+      const audioUrl  = audioData.download || audioData.dl || audioData.url;
+      if (!audioUrl) throw new Error('No download URL returned');
 
-      // Fetch audio buffer
+      // Download
       let audioBuffer;
       try {
         const resp = await axios.get(audioUrl, {
-          responseType: 'arraybuffer', timeout: 120000,
-          maxContentLength: Infinity, maxBodyLength: Infinity,
+          responseType: 'arraybuffer',
+          timeout: 180000,
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
           headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*', 'Accept-Encoding': 'identity' }
         });
         audioBuffer = Buffer.from(resp.data);
       } catch (e) {
-        // stream fallback
         const resp = await axios.get(audioUrl, {
-          responseType: 'stream', timeout: 120000,
-          headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*', 'Accept-Encoding': 'identity' }
+          responseType: 'stream',
+          timeout: 180000,
+          headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' }
         });
         const chunks = [];
         await new Promise((res, rej) => {
@@ -71,29 +73,37 @@ module.exports = {
         audioBuffer = Buffer.concat(chunks);
       }
 
-      if (!audioBuffer || audioBuffer.length === 0) throw new Error('Downloaded buffer is empty');
+      if (!audioBuffer?.length) throw new Error('Downloaded buffer is empty');
 
-      // Detect format
-      const sig = audioBuffer.toString('ascii', 0, 4);
+      // Detect actual format from magic bytes
+      const sig  = audioBuffer.slice(0, 4).toString('hex');
       const ftyp = audioBuffer.slice(4, 8).toString('ascii');
-      let ext = 'mp3';
-      if (ftyp === 'ftyp' || sig === '\x00\x00\x00\x1c' || sig === '\x00\x00\x00 ') ext = 'm4a';
-      else if (sig === 'OggS') ext = 'ogg';
-      else if (sig === 'RIFF') ext = 'wav';
+      let mimetype = 'audio/mpeg';  // default mp3
 
-      // Convert if needed
-      let finalBuffer = audioBuffer;
-      if (ext !== 'mp3') {
-        try { finalBuffer = await toAudio(audioBuffer, ext); } catch (e) { finalBuffer = audioBuffer; }
+      if (ftyp === 'ftyp') {
+        // M4A / AAC container
+        mimetype = 'audio/mp4';
+      } else if (sig === '4f676753') {
+        // OggS
+        mimetype = 'audio/ogg; codecs=opus';
+      } else if (sig === '52494646') {
+        // RIFF (WAV)
+        mimetype = 'audio/wav';
       }
+      // ID3 tag (mp3) — sig starts with '494433' or 'fffb/ffe3/fff3'
+      // stays as audio/mpeg
 
       const title = (audioData.title || video.title || 'song').replace(/[^\w\s\-]/g, '').trim();
+      const ext   = mimetype.includes('mp4') ? 'm4a' : mimetype.includes('ogg') ? 'ogg' : 'mp3';
+
+      // Send as audio document (NOT ptt) — plays inline in WhatsApp
       await sock.sendMessage(chatId, {
-        audio: finalBuffer,
-        mimetype: 'audio/mpeg',
-        fileName: `${title}.mp3`,
-        ptt: false
+        audio:    audioBuffer,
+        mimetype: mimetype,
+        fileName: `${title}.${ext}`,
+        ptt:      false
       }, { quoted: msg });
+
       await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
 
     } catch (err) {

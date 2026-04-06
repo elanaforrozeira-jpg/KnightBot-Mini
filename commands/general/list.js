@@ -1,40 +1,34 @@
 /**
- * List Command
- * Show all commands - branded for Ruhvaan
+ * List Command - Show all commands (no buttons, no github link)
  */
 
 const config = require('../../config');
 const { loadCommands } = require('../../utils/commandLoader');
-const { sendButtons } = require('gifted-btns');
 
-// Colourful category emojis
 const CAT_EMOJIS = {
-  admin:   '🛡️',
-  fun:     '🎭',
-  general: '📌',
-  media:   '🎬',
-  owner:   '👑',
-  utility: '🔧',
-  other:   '📦',
+  general:   '🧭',
+  ai:        '🤖',
+  admin:     '🛡️',
+  owner:     '👑',
+  media:     '🎞️',
+  fun:       '🎭',
+  utility:   '🔧',
+  anime:     '👾',
+  textmaker: '🖋️',
+  group:     '🔵',
+  other:     '📦',
 };
-
-// Big colourful block letters R U H V A A N using emoji squares
-const RUHVAAN_BANNER = [
-  '🟥🟧🟨🟩🟦🟪🩷',
-  '  *R U H V A A N*  ',
-  '🟥🟧🟨🟩🟦🟪🩷'
-].join('\n');
 
 module.exports = {
   name: 'list',
-  aliases: ['cmds', 'commands', 'help'],
+  aliases: ['cmds', 'commands'],
   description: 'List all commands with descriptions',
   usage: '.list',
   category: 'general',
 
   async execute(sock, msg, args, extra) {
     try {
-      const prefix = config.prefix;
+      const prefix   = config.prefix;
       const commands = loadCommands();
       const categories = {};
 
@@ -43,81 +37,49 @@ module.exports = {
           const cat = (cmd.category || 'other').toLowerCase();
           if (!categories[cat]) categories[cat] = [];
           categories[cat].push({
-            label: cmd.description || '',
             names: [cmd.name].concat(cmd.aliases || []),
+            label: cmd.description || '',
           });
         }
       });
 
-      // ── Build menu text ──────────────────────────────────────────────────
-      let menu = `${RUHVAAN_BANNER}\n\n`;
-      menu += `╔══════════════════════╗\n`;
-      menu += `║  🤖 *${config.botName}*  ║\n`;
-      menu += `╚══════════════════════╝\n`;
-      menu += `⚡ Prefix: *${prefix}*\n\n`;
+      let menu = '';
 
-      const orderedCats = Object.keys(categories).sort();
+      // Header
+      menu += `⚡ *${config.botName}* — Commands\n`;
+      menu += `🔑 Prefix: *${prefix}*\n`;
+      menu += `📦 Total: *${Object.values(categories).flat().length}*\n`;
+      menu += `┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n`;
 
-      for (const cat of orderedCats) {
+      // Categories sorted
+      const ORDER = ['general','ai','admin','owner','media','fun','utility','anime','textmaker','group','other'];
+      const sorted = [
+        ...ORDER.filter(k => categories[k]),
+        ...Object.keys(categories).filter(k => !ORDER.includes(k))
+      ];
+
+      for (const cat of sorted) {
         const emoji = CAT_EMOJIS[cat] || '📦';
         menu += `${emoji} *${cat.toUpperCase()}*\n`;
-        menu += `${'─'.repeat(20)}\n`;
         for (const entry of categories[cat]) {
-          const cmdList = entry.names.map(n => `${prefix}${n}`).join(', ');
-          const label = entry.label || '';
-          menu += label
-            ? `  • \`${cmdList}\` — ${label}\n`
-            : `  • \`${cmdList}\`\n`;
+          const cmdStr = entry.names.map(n => `${prefix}${n}`).join(', ');
+          menu += entry.label
+            ? `  • \`${cmdStr}\` — _${entry.label}_\n`
+            : `  • \`${cmdStr}\`\n`;
         }
         menu += '\n';
       }
 
       menu = menu.trimEnd();
 
-      // ── Send with only GitHub button ─────────────────────────────────────
-      await sendButtons(sock, extra.from, {
-        title: '',
+      await sock.sendMessage(extra.from, {
         text: menu,
-        footer: '🟥🟧🟨🟩🟦🟪🩷 *Ruhvaan* 🩷🟪🟦🟩🟨🟧🟥',
-        buttons: [
-          {
-            name: 'cta_url',
-            buttonParamsJson: JSON.stringify({
-              display_text: '💻 GitHub',
-              url: config.social?.github || 'https://github.com/elanaforrozeira-jpg/KnightBot-Mini'
-            })
-          }
-        ]
+        mentions: [extra.sender]
       }, { quoted: msg });
 
     } catch (err) {
       console.error('list.js error:', err);
-      // Fallback plain text if gifted-btns fails
-      try {
-        const prefix = config.prefix;
-        const commands = loadCommands();
-        const categories = {};
-        commands.forEach((cmd, name) => {
-          if (cmd.name === name && !cmd.hidden) {
-            const cat = (cmd.category || 'other').toLowerCase();
-            if (!categories[cat]) categories[cat] = [];
-            categories[cat].push({ label: cmd.description || '', names: [cmd.name].concat(cmd.aliases || []) });
-          }
-        });
-        let menu = `${RUHVAAN_BANNER}\n\n🤖 *${config.botName}* — Commands\nPrefix: *${prefix}*\n\n`;
-        for (const cat of Object.keys(categories).sort()) {
-          const emoji = CAT_EMOJIS[cat] || '📦';
-          menu += `${emoji} *${cat.toUpperCase()}*\n`;
-          for (const entry of categories[cat]) {
-            menu += `  • ${entry.names.map(n => `${prefix}${n}`).join(', ')}${entry.label ? ' — ' + entry.label : ''}\n`;
-          }
-          menu += '\n';
-        }
-        menu += '\n🟥🟧🟨🟩🟦🟪🩷 *Ruhvaan* 🩷🟪🟦🟩🟨🟧🟥';
-        await extra.reply(menu);
-      } catch (e) {
-        await extra.reply('❌ Failed to load commands list.');
-      }
+      await extra.reply('❌ Failed to load commands list.');
     }
   }
 };

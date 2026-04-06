@@ -37,9 +37,7 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
-  Browsers,
   fetchLatestBaileysVersion,
-  getAggregateVotesInPollMessage
 } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const config = require('./config');
@@ -49,15 +47,11 @@ const path = require('path');
 const zlib = require('zlib');
 const os = require('os');
 
-// ── reconnect state ──────────────────────────────────────────────────────────
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
-
 let sessionWrittenOnce = false;
 
-const getReconnectDelay = (attempt) => {
-  return Math.min(3000 * Math.pow(2, attempt), 60000);
-};
+const getReconnectDelay = (attempt) => Math.min(3000 * Math.pow(2, attempt), 60000);
 
 function cleanupPuppeteerCache() {
   try {
@@ -66,11 +60,8 @@ function cleanupPuppeteerCache() {
     if (fs.existsSync(cacheDir)) {
       console.log('🧹 Removing Puppeteer cache at:', cacheDir);
       fs.rmSync(cacheDir, { recursive: true, force: true });
-      console.log('✅ Puppeteer cache removed');
     }
-  } catch (err) {
-    console.error('⚠️ Failed to cleanup Puppeteer cache:', err.message || err);
-  }
+  } catch (err) {}
 }
 
 const store = {
@@ -105,16 +96,9 @@ const createSuppressedLogger = (level = 'silent') => {
   ];
   let logger;
   try {
-    logger = pino({
-      level,
-      transport: process.env.NODE_ENV === 'production' ? undefined : {
-        target: 'pino-pretty',
-        options: { colorize: true, ignore: 'pid,hostname' }
-      },
-      redact: ['registrationId', 'ephemeralKeyPair', 'rootKey', 'chainKey', 'baseKey']
-    });
-  } catch (err) {
     logger = pino({ level });
+  } catch (err) {
+    logger = pino({ level: 'silent' });
   }
   const originalInfo = logger.info.bind(logger);
   logger.info = (...args) => {
@@ -145,19 +129,18 @@ async function startBot() {
       console.error('📡 Session : ❌ Error processing KnightBot session:', e.message);
     }
   } else if (sessionWrittenOnce) {
-    console.log('📡 Session : ✅ Using existing creds (reconnect — skipping overwrite)');
+    console.log('📡 Session : ✅ Using existing creds (reconnect)');
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
 
-  // fetchLatestBaileysVersion ke fail hone pe fallback version use karo
   let version = [2, 3000, 1015901307];
   try {
     const result = await fetchLatestBaileysVersion();
     if (result && result.version) version = result.version;
     console.log(`📦 Baileys version: ${version.join('.')}`);
   } catch (e) {
-    console.warn('⚠️ fetchLatestBaileysVersion failed, using fallback version:', version.join('.'));
+    console.warn('⚠️ Using fallback Baileys version:', version.join('.'));
   }
 
   const suppressedLogger = createSuppressedLogger('silent');
@@ -166,11 +149,13 @@ async function startBot() {
     version,
     logger: suppressedLogger,
     printQRInTerminal: false,
-    browser: Browsers.ubuntu('Chrome'),
+    // v6 compatible browser array — Browsers.ubuntu() v7 mein hai, v6 mein nahi
+    browser: ['KnightBot', 'Chrome', '3.0.0'],
     auth: state,
     syncFullHistory: false,
     downloadHistory: false,
-    markOnlineOnConnect: false,
+    // true rakho — WA ko online signal milta hai tabhi messages push karta hai
+    markOnlineOnConnect: true,
     getMessage: async (key) => {
       return store.messages.get(key.remoteJid)?.get(key.id) || undefined;
     }
@@ -182,9 +167,9 @@ async function startBot() {
   const INACTIVITY_TIMEOUT = 30 * 60 * 1000;
   sock.ev.on('messages.upsert', () => { lastActivity = Date.now(); });
   const watchdogInterval = setInterval(async () => {
-    if (Date.now() - lastActivity > INACTIVITY_TIMEOUT && sock.ws.readyState === 1) {
+    if (Date.now() - lastActivity > INACTIVITY_TIMEOUT && sock.ws?.readyState === 1) {
       console.log('⚠️ No activity detected. Forcing reconnect...');
-      await sock.end(undefined, undefined, { reason: 'inactive' });
+      try { sock.end(new Error('inactive')); } catch(e) {}
       clearInterval(watchdogInterval);
       setTimeout(() => startBot(), 5000);
     }
@@ -205,39 +190,32 @@ async function startBot() {
 
     if (connection === 'close') {
       clearInterval(watchdogInterval);
-
       const statusCode   = lastDisconnect?.error?.output?.statusCode;
       const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
 
       if (statusCode === 440) {
         reconnectAttempts++;
         const delay = getReconnectDelay(reconnectAttempts);
-        console.log(`⚠️ Stream Conflict (440) — attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay / 1000}s...`);
-        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-          console.error('❌ Max Stream Conflicts reached. Exiting for fresh Railway restart.');
-          process.exit(1);
-        }
+        console.log(`⚠️ Stream Conflict (440) — attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay/1000}s...`);
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) { console.error('❌ Max reconnects. Exiting.'); process.exit(1); }
         setTimeout(() => startBot(), delay);
         return;
       }
-
       if (statusCode === DisconnectReason.loggedOut) {
-        console.log('🔴 Logged out. Please update SESSION_ID and redeploy.');
+        console.log('🔴 Logged out. Update SESSION_ID and redeploy.');
         process.exit(1);
         return;
       }
-
       if (statusCode === 515 || statusCode === 503 || statusCode === 408) {
         reconnectAttempts++;
         const delay = getReconnectDelay(reconnectAttempts);
-        console.log(`⚠️ WA server error (${statusCode}). Reconnecting in ${delay / 1000}s...`);
+        console.log(`⚠️ WA server error (${statusCode}). Reconnecting in ${delay/1000}s...`);
         setTimeout(() => startBot(), delay);
         return;
       }
-
       reconnectAttempts++;
       const delay = getReconnectDelay(reconnectAttempts);
-      console.log(`Connection closed: ${errorMessage} | Reconnecting in ${delay / 1000}s...`);
+      console.log(`Connection closed: ${errorMessage} | Reconnecting in ${delay/1000}s...`);
       setTimeout(() => startBot(), delay);
 
     } else if (connection === 'open') {
@@ -251,12 +229,6 @@ async function startBot() {
       console.log('Bot is ready to receive messages!\n');
       if (config.autoBio) await sock.updateProfileStatus(`${config.botName} | Active 24/7`);
       handler.initializeAntiCall(sock);
-      const now = Date.now();
-      for (const [jid, chatMsgs] of store.messages.entries()) {
-        const timestamps = Array.from(chatMsgs.values()).map(m => m.messageTimestamp * 1000 || 0);
-        if (timestamps.length > 0 && now - Math.max(...timestamps) > 24 * 60 * 60 * 1000) store.messages.delete(jid);
-      }
-      console.log(`🧹 Store cleaned. Active chats: ${store.messages.size}`);
     }
   });
 
@@ -268,12 +240,9 @@ async function startBot() {
       jid.includes('@newsletter') || jid.includes('@newsletter.');
   };
 
-  // MESSAGE_AGE_LIMIT badhaya — 5min se 10min
-  // Isse naye deploy ke baad bhi recent messages process honge
   const MESSAGE_AGE_LIMIT = 10 * 60 * 1000;
 
   sock.ev.on('messages.upsert', ({ messages, type }) => {
-    // 'notify' aur 'append' dono accept karo
     if (type !== 'notify' && type !== 'append') return;
     for (const msg of messages) {
       if (!msg.message || !msg.key?.id) continue;
@@ -281,13 +250,9 @@ async function startBot() {
       if (!from || isSystemJid(from)) continue;
       const msgId = msg.key.id;
       if (processedMessages.has(msgId)) continue;
-
-      // Age check — skip only truly old messages
       if (msg.messageTimestamp && Date.now() - (msg.messageTimestamp * 1000) > MESSAGE_AGE_LIMIT) continue;
-
       processedMessages.add(msgId);
 
-      // Store mein save karo
       if (!store.messages.has(from)) store.messages.set(from, new Map());
       const chatMsgs = store.messages.get(from);
       chatMsgs.set(msg.key.id, msg);
@@ -298,11 +263,10 @@ async function startBot() {
         for (let i = 0; i < sortedIds.length - store.maxPerChat; i++) chatMsgs.delete(sortedIds[i]);
       }
 
-      // Debug log — message receive hua confirm karna
       const body = msg.message?.conversation ||
                    msg.message?.extendedTextMessage?.text ||
                    msg.message?.imageMessage?.caption || '';
-      if (body) originalConsoleLog.call(console, `📨 MSG from ${from.split('@')[0]}: ${body.slice(0, 60)}`);
+      if (body) originalConsoleLog.call(console, `📨 MSG [${type}] from ${from.split('@')[0]}: ${body.slice(0, 60)}`);
 
       handler.handleMessage(sock, msg).catch(err => {
         if (!err.message?.includes('rate-overlimit') && !err.message?.includes('not-authorized'))
@@ -333,13 +297,8 @@ async function startBot() {
         const voter = update.key.participant || update.key.remoteJid;
         const selectedOptions = (pollVote.votes || []).map(v => v.optionName);
         const pollUpdate = {
-          pollCreationMessageKey: {
-            remoteJid: update.key.remoteJid,
-            id: update.key.id,
-            fromMe: update.key.fromMe
-          },
-          voter,
-          selectedOptions,
+          pollCreationMessageKey: { remoteJid: update.key.remoteJid, id: update.key.id, fromMe: update.key.fromMe },
+          voter, selectedOptions,
           pushName: update.pushName || voter.split('@')[0]
         };
         const quizMod = require('./commands/fun/quiz');
@@ -374,7 +333,6 @@ startBot().catch(err => { console.error('Error starting bot:', err); process.exi
 
 process.on('uncaughtException', (err) => {
   if (err.code === 'ENOSPC' || err.errno === -28 || err.message?.includes('no space left on device')) {
-    console.error('⚠️ ENOSPC Error: No space left on device. Attempting cleanup...');
     const { cleanupOldFiles } = require('./utils/cleanup');
     cleanupOldFiles();
     return;
@@ -387,10 +345,7 @@ process.on('unhandledRejection', (err) => {
     cleanupOldFiles();
     return;
   }
-  if (err.message?.includes('rate-overlimit')) {
-    console.warn('⚠️ Rate limit reached.');
-    return;
-  }
+  if (err.message?.includes('rate-overlimit')) return;
   console.error('Unhandled Rejection:', err);
 });
 

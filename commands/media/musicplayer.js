@@ -17,6 +17,7 @@
 const yts   = require('yt-search');
 const axios  = require('axios');
 const APIs   = require('../../utils/api');
+const { detectAudioFormat, looksLikeTextPayload, cleanAudioTitle } = require('../../utils/audioMessage');
 
 // In-memory sessions: chatId → session object
 const sessions = new Map();
@@ -242,6 +243,7 @@ module.exports = {
 
     // Download audio
     let audioBuffer;
+    let contentType = '';
     try {
       const audioData = await APIs.getYtAudio(video.url);
       const audioUrl  = audioData.download || audioData.dl || audioData.url;
@@ -257,6 +259,7 @@ module.exports = {
           headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*', 'Accept-Encoding': 'identity' }
         });
         audioBuffer = Buffer.from(resp.data);
+        contentType = resp.headers?.['content-type'] || '';
       } catch (_) {
         const resp = await axios.get(audioUrl, {
           responseType: 'stream',
@@ -270,6 +273,7 @@ module.exports = {
           resp.data.on('error', rej);
         });
         audioBuffer = Buffer.concat(chunks);
+        contentType = resp.headers?.['content-type'] || '';
       }
     } catch (err) {
       stopSession(from);
@@ -280,15 +284,20 @@ module.exports = {
       stopSession(from);
       return reply('❌ Audio buffer empty. Try a different song.');
     }
+    if (looksLikeTextPayload(audioBuffer, contentType)) {
+      stopSession(from);
+      return reply('❌ Invalid audio response. Try again in a few seconds.');
+    }
 
-    const title = (video.title || 'song').replace(/[^\w\s\-]/g, '').trim();
+    const title = cleanAudioTitle(video.title || 'song');
+    const { mimetype, ext } = detectAudioFormat(audioBuffer, contentType);
 
     // ─── Send as AUDIO message (NOT PTT/voice note) ───
     // ptt: false  → shows as a normal audio file with scrubber in WhatsApp
     await sock.sendMessage(from, {
       audio:    audioBuffer,
-      mimetype: 'audio/mpeg',
-      fileName: `${title}.mp3`,
+      mimetype,
+      fileName: `${title}.${ext}`,
       ptt:      false          // ⬅ THIS is the key: false = playable audio, true = voice note
     }, { quoted: msg });
 

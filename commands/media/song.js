@@ -7,6 +7,7 @@
 const yts   = require('yt-search');
 const axios  = require('axios');
 const APIs   = require('../../utils/api');
+const { detectAudioFormat, looksLikeTextPayload, cleanAudioTitle } = require('../../utils/audioMessage');
 
 module.exports = {
   name: 'song',
@@ -49,6 +50,7 @@ module.exports = {
 
       // Download
       let audioBuffer;
+      let contentType = '';
       try {
         const resp = await axios.get(audioUrl, {
           responseType: 'arraybuffer',
@@ -58,6 +60,7 @@ module.exports = {
           headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*', 'Accept-Encoding': 'identity' }
         });
         audioBuffer = Buffer.from(resp.data);
+        contentType = resp.headers?.['content-type'] || '';
       } catch (e) {
         const resp = await axios.get(audioUrl, {
           responseType: 'stream',
@@ -71,30 +74,16 @@ module.exports = {
           resp.data.on('error', rej);
         });
         audioBuffer = Buffer.concat(chunks);
+        contentType = resp.headers?.['content-type'] || '';
       }
 
       if (!audioBuffer?.length) throw new Error('Downloaded buffer is empty');
-
-      // Detect actual format from magic bytes
-      const sig  = audioBuffer.slice(0, 4).toString('hex');
-      const ftyp = audioBuffer.slice(4, 8).toString('ascii');
-      let mimetype = 'audio/mpeg';  // default mp3
-
-      if (ftyp === 'ftyp') {
-        // M4A / AAC container
-        mimetype = 'audio/mp4';
-      } else if (sig === '4f676753') {
-        // OggS
-        mimetype = 'audio/ogg; codecs=opus';
-      } else if (sig === '52494646') {
-        // RIFF (WAV)
-        mimetype = 'audio/wav';
+      if (looksLikeTextPayload(audioBuffer, contentType)) {
+        throw new Error('Invalid media response from downloader API');
       }
-      // ID3 tag (mp3) — sig starts with '494433' or 'fffb/ffe3/fff3'
-      // stays as audio/mpeg
 
-      const title = (audioData.title || video.title || 'song').replace(/[^\w\s\-]/g, '').trim();
-      const ext   = mimetype.includes('mp4') ? 'm4a' : mimetype.includes('ogg') ? 'ogg' : 'mp3';
+      const { mimetype, ext } = detectAudioFormat(audioBuffer, contentType);
+      const title = cleanAudioTitle(audioData.title || video.title || 'song');
 
       // Send as audio document (NOT ptt) — plays inline in WhatsApp
       await sock.sendMessage(chatId, {

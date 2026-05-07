@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: knightbot-mini
+    runtime: node
+    plan: free
+    buildCommand: npm install --legacy-peer-deps --omit=optional
+    startCommand: node --max-old-space-size=400 index.js
+    autoDeploy: true
+    envVars:
+      - key: SESSION_ID
+        sync: false
